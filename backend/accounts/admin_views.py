@@ -66,6 +66,13 @@ class AdminAPIView(APIView):
     throttle_classes = [AdminRateThrottle]
 
 
+class AdminGateView(AdminAPIView):
+    def get(self, request):
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        response["Cache-Control"] = "no-store"
+        return response
+
+
 def get_site_settings():
     settings_obj, _ = SiteSettings.objects.get_or_create(pk=1)
     return settings_obj

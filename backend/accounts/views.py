@@ -1,5 +1,7 @@
 import logging
+from urllib.parse import urlparse
 
+from django.conf import settings
 from django.contrib.auth.models import update_last_login
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
@@ -32,7 +34,14 @@ from .social_auth import (
     get_default_frontend_origin,
     normalize_provider,
 )
-from .throttles import LoginRateThrottle, RegisterRateThrottle, SocialLoginRateThrottle
+from .signup_protection import get_signup_challenge_payload
+from .throttles import (
+    LoginRateThrottle,
+    RegisterBurstRateThrottle,
+    RegisterShortWindowRateThrottle,
+    RegisterSustainedRateThrottle,
+    SocialLoginRateThrottle,
+)
 from .token_cookies import (
     clear_refresh_cookie,
     get_refresh_token_from_request,
@@ -69,6 +78,34 @@ class EmailVerificationUnavailable(APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_detail = "Email verification is temporarily unavailable. Please try again later."
     default_code = "email_verification_unavailable"
+
+
+def get_request_origin(request):
+    origin = (request.headers.get("Origin") or "").strip().rstrip("/")
+    if origin:
+        return origin
+
+    referer = (request.headers.get("Referer") or "").strip()
+    if not referer:
+        return ""
+
+    parsed = urlparse(referer)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def has_trusted_refresh_origin(request):
+    request_origin = get_request_origin(request)
+    if not request_origin:
+        return False
+
+    trusted_origins = {
+        origin.strip().rstrip("/")
+        for origin in getattr(settings, "CSRF_TRUSTED_ORIGINS", [])
+        if origin and origin.strip()
+    }
+    return request_origin in trusted_origins
 
 
 def get_resend_verification_response():
@@ -143,12 +180,17 @@ class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = [AllowAny]
     serializer_class = UserRegistrationSerializer
-    throttle_classes = [RegisterRateThrottle]
+    throttle_classes = [
+        RegisterBurstRateThrottle,
+        RegisterShortWindowRateThrottle,
+        RegisterSustainedRateThrottle,
+    ]
 
     def create(self, request, *args, **kwargs):
         site_settings = get_site_settings()
         verification_required = site_settings.require_email_verification
         serializer = self.get_serializer(data=request.data)
+        serializer.context["site_settings"] = site_settings
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
             user = serializer.save(email_verified=not verification_required)
@@ -172,6 +214,25 @@ class RegisterView(generics.CreateAPIView):
             message="User registered successfully.",
             status_code=status.HTTP_201_CREATED,
         )
+
+
+class RegisterCaptchaView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            payload = get_signup_challenge_payload(get_site_settings())
+        except RuntimeError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        response = Response(
+            payload,
+            status=status.HTTP_200_OK,
+        )
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 @api_view(["POST"])
@@ -398,10 +459,25 @@ class VerifiedTokenRefreshView(TokenRefreshView):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
-        refresh_token = (
-            (request.data.get("refresh") or "").strip()
-            or get_refresh_token_from_request(request)
-        )
+        body_refresh_token = (request.data.get("refresh") or "").strip()
+        cookie_refresh_token = get_refresh_token_from_request(request)
+
+        if cookie_refresh_token and not has_trusted_refresh_origin(request):
+            log_audit_event(
+                "token_refresh_denied",
+                outcome="failure",
+                level="warning",
+                request=request,
+                reason="untrusted_origin",
+            )
+            response = Response(
+                {"detail": "Refresh request origin is not allowed."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+            clear_refresh_cookie(response)
+            return response
+
+        refresh_token = body_refresh_token or cookie_refresh_token
         if refresh_token:
             try:
                 token = RefreshToken(refresh_token)

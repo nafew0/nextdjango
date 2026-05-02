@@ -4,7 +4,9 @@ Template created from AniFight project.
 """
 
 import os
+import re
 import sys
+import logging
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlparse
@@ -12,6 +14,8 @@ from urllib.parse import urlparse
 from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -65,6 +69,33 @@ def origin_to_host(value):
     return parsed.hostname or value.split(":")[0].strip("/")
 
 
+PLACEHOLDER_VALUE_PATTERN = re.compile(
+    r"(django-insecure|change|placeholder|example|your[-_ ]?(secret|key)|__required__)",
+    re.IGNORECASE,
+)
+WEAK_PASSWORD_VALUES = {
+    "",
+    "postgres",
+    "password",
+    "changeme",
+    "secret",
+    "__required__",
+}
+
+
+def looks_like_placeholder(value):
+    normalized = (value or "").strip()
+    return not normalized or bool(PLACEHOLDER_VALUE_PATTERN.search(normalized))
+
+
+def ensure_strong_secret(name, value, *, min_length=50):
+    normalized = (value or "").strip()
+    if len(normalized) < min_length or looks_like_placeholder(normalized):
+        raise ImproperlyConfigured(
+            f"{name} must be set to a strong random value in production."
+        )
+
+
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get(
     "DJANGO_SECRET_KEY", "django-insecure-CHANGE-THIS-IN-PRODUCTION"
@@ -104,7 +135,7 @@ ALLOWED_HOSTS = env_list(
 )
 
 default_dev_frontend_origins = (
-    ["http://localhost:5555", "http://127.0.0.1:5555"] if DEBUG else []
+    ["http://localhost:3000", "http://127.0.0.1:3000"] if DEBUG else []
 )
 default_dev_backend_origins = (
     ["http://localhost:8000", "http://127.0.0.1:8000"] if DEBUG else []
@@ -242,7 +273,10 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,
     "ALGORITHM": "HS256",
-    "SIGNING_KEY": SECRET_KEY,
+    "SIGNING_KEY": os.environ.get(
+        "JWT_SIGNING_KEY",
+        SECRET_KEY if not IS_PRODUCTION else "",
+    ).strip(),
     "VERIFYING_KEY": None,
     "AUDIENCE": None,
     "ISSUER": None,
@@ -349,7 +383,6 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 USE_X_FORWARDED_HOST = env_bool("USE_X_FORWARDED_HOST", not DEBUG)
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
 SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", not DEBUG)
 SESSION_COOKIE_HTTPONLY = True
@@ -357,7 +390,7 @@ SESSION_COOKIE_HTTPONLY = True
 AUTH_REFRESH_COOKIE_NAME = os.environ.get("AUTH_REFRESH_COOKIE_NAME", "reactdjango_refresh")
 AUTH_REFRESH_COOKIE_PATH = os.environ.get("AUTH_REFRESH_COOKIE_PATH", "/api/auth/")
 AUTH_REFRESH_COOKIE_SECURE = env_bool("AUTH_REFRESH_COOKIE_SECURE", IS_PRODUCTION)
-AUTH_REFRESH_COOKIE_SAMESITE = os.environ.get("AUTH_REFRESH_COOKIE_SAMESITE", "Lax")
+AUTH_REFRESH_COOKIE_SAMESITE = os.environ.get("AUTH_REFRESH_COOKIE_SAMESITE", "Strict")
 AUTH_REFRESH_COOKIE_DOMAIN = os.environ.get("AUTH_REFRESH_COOKIE_DOMAIN", "").strip()
 SOCIAL_AUTH_ALLOWED_FRONTEND_ORIGINS = env_list(
     "SOCIAL_AUTH_ALLOWED_FRONTEND_ORIGINS",
@@ -368,6 +401,14 @@ SOCIAL_AUTH_FRONTEND_CALLBACK_PATH = os.environ.get(
     "/auth/social/callback",
 ).strip() or "/auth/social/callback"
 TRUSTED_PROXY_IPS = env_list("TRUSTED_PROXY_IPS", [])
+SIGNUP_REGISTER_BURST_RATE = os.environ.get("SIGNUP_REGISTER_BURST_RATE", "1/15s").strip()
+SIGNUP_REGISTER_SHORT_WINDOW_RATE = os.environ.get("SIGNUP_REGISTER_SHORT_WINDOW_RATE", "3/10m").strip()
+SIGNUP_REGISTER_SUSTAINED_RATE = os.environ.get("SIGNUP_REGISTER_SUSTAINED_RATE", "10/h").strip()
+SIGNUP_CAPTCHA_TTL_SECONDS = int(os.environ.get("SIGNUP_CAPTCHA_TTL_SECONDS", "600"))
+SIGNUP_FORM_MIN_AGE_SECONDS = int(os.environ.get("SIGNUP_FORM_MIN_AGE_SECONDS", "3"))
+SIGNUP_FORM_MAX_AGE_SECONDS = int(os.environ.get("SIGNUP_FORM_MAX_AGE_SECONDS", "3600"))
+SIGNUP_DISPOSABLE_EMAIL_BLOCKLIST = env_list("SIGNUP_DISPOSABLE_EMAIL_BLOCKLIST", [])
+SIGNUP_DISPOSABLE_EMAIL_ALLOWLIST = env_list("SIGNUP_DISPOSABLE_EMAIL_ALLOWLIST", [])
 BKASH_CALLBACK_TRUSTED_IPS = env_list("BKASH_CALLBACK_TRUSTED_IPS", [])
 BKASH_WEBHOOK_TOPIC_ARN = os.environ.get("BKASH_WEBHOOK_TOPIC_ARN", "").strip()
 BKASH_WEBHOOK_URL = os.environ.get("BKASH_WEBHOOK_URL", "").strip()
@@ -386,12 +427,23 @@ CONTENT_SECURITY_POLICY = "; ".join(
 )
 
 if IS_PRODUCTION:
-    if SECRET_KEY == "django-insecure-CHANGE-THIS-IN-PRODUCTION":
+    ensure_strong_secret("DJANGO_SECRET_KEY", SECRET_KEY)
+    ensure_strong_secret("JWT_SIGNING_KEY", SIMPLE_JWT["SIGNING_KEY"])
+    if SIMPLE_JWT["SIGNING_KEY"] == SECRET_KEY:
         raise ImproperlyConfigured(
-            "DJANGO_SECRET_KEY must be set explicitly in production."
+            "JWT_SIGNING_KEY must be set separately from DJANGO_SECRET_KEY in production."
+        )
+    if (
+        db_engine != "django.db.backends.sqlite3"
+        and os.environ.get("DB_PASSWORD", "").strip().lower() in WEAK_PASSWORD_VALUES
+    ):
+        raise ImproperlyConfigured(
+            "DB_PASSWORD must be set to a strong value in production."
         )
     if DEBUG:
         raise ImproperlyConfigured("DEBUG must be False in production.")
+    if env_bool("TRUST_X_FORWARDED_PROTO", False):
+        SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
     SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", True)
     SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "31536000"))
@@ -420,6 +472,16 @@ else:
     )
     SECURE_CONTENT_TYPE_NOSNIFF = env_bool("SECURE_CONTENT_TYPE_NOSNIFF", True)
     X_FRAME_OPTIONS = os.environ.get("X_FRAME_OPTIONS", "DENY")
+
+if IS_PRODUCTION and (
+    not USE_REDIS
+    or CACHES["default"]["BACKEND"] != "django.core.cache.backends.redis.RedisCache"
+):
+    logger.warning(
+        "Production rate limiting requires USE_REDIS=true with django.core.cache.backends.redis.RedisCache. "
+        "Current cache backend: %s",
+        CACHES["default"]["BACKEND"],
+    )
 
 # Stripe
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")

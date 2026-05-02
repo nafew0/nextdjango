@@ -10,7 +10,14 @@ from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 from subscriptions.serializers import PlanSummarySerializer
 from subscriptions.services import LicenseService
 
+from .signup_protection import (
+    GENERIC_SIGNUP_FAILURE_MESSAGE,
+    is_disposable_email_domain,
+    validate_signup_captcha,
+    validate_signup_request_token,
+)
 from .social_auth import get_social_provider_statuses, sanitize_next_path
+from .verification import get_site_settings
 
 User = get_user_model()
 FORMAT_CONTENT_TYPES = {
@@ -75,7 +82,6 @@ class UserSerializer(serializers.ModelSerializer):
     """Serializer for User model."""
 
     current_plan = serializers.SerializerMethodField()
-    can_access_admin = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -83,7 +89,6 @@ class UserSerializer(serializers.ModelSerializer):
             "id",
             "username",
             "email",
-            "can_access_admin",
             "first_name",
             "last_name",
             "bio",
@@ -102,9 +107,6 @@ class UserSerializer(serializers.ModelSerializer):
         plan = LicenseService.get_user_plan(obj)
         return PlanSummarySerializer(plan).data
 
-    def get_can_access_admin(self, obj):
-        return bool(obj.is_superuser)
-
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     """Serializer for user registration."""
@@ -113,6 +115,16 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         write_only=True, required=True, validators=[validate_password]
     )
     password2 = serializers.CharField(write_only=True, required=True)
+    captcha_id = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=255)
+    captcha_answer = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, max_length=64
+    )
+    registration_token = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, max_length=512
+    )
+    company_website = serializers.CharField(
+        write_only=True, required=False, allow_blank=True, max_length=255
+    )
 
     class Meta:
         model = User
@@ -124,7 +136,29 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "organization",
+            "captcha_id",
+            "captcha_answer",
+            "registration_token",
+            "company_website",
         ]
+
+    def get_site_settings(self):
+        return self.context.get("site_settings") or get_site_settings()
+
+    def validate_email(self, value):
+        normalized = (value or "").strip()
+        if not normalized:
+            raise serializers.ValidationError("Email is required.")
+
+        site_settings = self.get_site_settings()
+        if (
+            site_settings.signup_disposable_email_blocking_enabled
+            and is_disposable_email_domain(normalized)
+        ):
+            raise serializers.ValidationError(
+                "Disposable email addresses are not allowed. Use a regular inbox."
+            )
+        return normalized
 
     def validate(self, attrs):
         """Validate that passwords match."""
@@ -132,11 +166,39 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"password": "Password fields didn't match."}
             )
+
+        if (attrs.get("company_website") or "").strip():
+            raise serializers.ValidationError(
+                {"non_field_errors": [GENERIC_SIGNUP_FAILURE_MESSAGE]}
+            )
+
+        try:
+            validate_signup_request_token(attrs.get("registration_token", ""))
+        except ValueError as exc:
+            raise serializers.ValidationError(
+                {"non_field_errors": [str(exc) or GENERIC_SIGNUP_FAILURE_MESSAGE]}
+            ) from exc
+
+        try:
+            validate_signup_captcha(
+                self.get_site_settings(),
+                captcha_id=attrs.get("captcha_id", ""),
+                captcha_answer=attrs.get("captcha_answer", ""),
+            )
+        except ValueError as exc:
+            raise serializers.ValidationError({"captcha_answer": str(exc)}) from exc
         return attrs
 
     def create(self, validated_data):
         """Create a new user with encrypted password."""
-        validated_data.pop("password2")
+        for field_name in (
+            "password2",
+            "captcha_id",
+            "captcha_answer",
+            "registration_token",
+            "company_website",
+        ):
+            validated_data.pop(field_name, None)
         user = User.objects.create_user(**validated_data)
         return user
 
@@ -151,18 +213,19 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             "last_name",
             "bio",
             "avatar",
-            "email",
             "organization",
             "designation",
             "phone",
         ]
 
-    def validate_email(self, value):
-        """Check if email is already in use by another user."""
-        user = self.context["request"].user
-        if User.objects.exclude(pk=user.pk).filter(email=value).exists():
-            raise serializers.ValidationError("This email is already in use.")
-        return value
+    def validate(self, attrs):
+        if "email" in getattr(self, "initial_data", {}):
+            raise serializers.ValidationError(
+                {
+                    "email": "Email changes require a dedicated verification flow and are not available here."
+                }
+            )
+        return attrs
 
     def validate_phone(self, value):
         """Allow common international phone formats without being overly strict."""

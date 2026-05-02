@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get your Django + React SaaS starter up and running in minutes.
+Get your Django + Next.js SaaS starter up and running in minutes.
 
 ## Prerequisites
 
@@ -53,7 +53,7 @@ cd backend
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# Edit .env — at minimum set DB_NAME, DB_USER, DB_PASSWORD
+# Edit .env — at minimum set DJANGO_SECRET_KEY, JWT_SIGNING_KEY, DB_NAME, DB_USER, DB_PASSWORD
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver 8000
@@ -62,6 +62,7 @@ python manage.py runserver 8000
 cd frontend
 npm install
 cp .env.example .env
+# Optional: change BACKEND_URL if Django is not on http://localhost:8000
 npm run dev
 ```
 
@@ -70,14 +71,14 @@ npm run dev
 ```bash
 ./start.sh           # both servers
 ./start_backend.sh   # backend only  (port 8000)
-./start_frontend.sh  # frontend only (port 5555)
+./start_frontend.sh  # frontend only (port 3000)
 ```
 
 ## Access
 
 | URL | What |
 |-----|------|
-| http://localhost:5555 | Frontend |
+| http://localhost:3000 | Frontend |
 | http://localhost:8000/api | REST API |
 | http://localhost:8000/admin | Django Admin |
 
@@ -89,12 +90,16 @@ npm run dev
 4. **Admin panel** (`/admin`) → log in as staff/superuser
 5. **Profile** → update avatar, org, change password
 
+## Production Note
+
+For reliable signup and auth rate limiting in production, set `USE_REDIS=true` and back it with a shared Redis cache. If the app is behind a reverse proxy, also configure `TRUSTED_PROXY_IPS` so IP-based throttles see the real client IP instead of the proxy address.
+
 ## Configuring Payments
 
 ### Stripe
 1. Create products & prices in Stripe Dashboard
 2. Add `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` to `backend/.env`
-3. Add `VITE_STRIPE_PUBLISHABLE_KEY` to `frontend/.env`
+3. Add `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` to `frontend/.env`
 4. Update `Plan.stripe_price_id_monthly` / `stripe_price_id_yearly` via Django admin
 5. Set up webhook endpoint: `POST /api/payments/stripe/webhook/`
 
@@ -115,7 +120,7 @@ The `Plan.max_items` field is a generic limit. Rename it to fit your domain by:
 **Port in use:**
 ```bash
 lsof -ti:8000 | xargs kill -9
-lsof -ti:5555 | xargs kill -9
+lsof -ti:3000 | xargs kill -9
 ```
 
 **Redis not running:**

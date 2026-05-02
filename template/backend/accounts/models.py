@@ -61,6 +61,8 @@ class SiteSettings(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
     require_email_verification = models.BooleanField(default=True)
     logged_in_users_only_default = models.BooleanField(default=False)
+    signup_captcha_enabled = models.BooleanField(default=False)
+    signup_disposable_email_blocking_enabled = models.BooleanField(default=False)
     social_login_google_enabled = models.BooleanField(default=False)
     social_login_facebook_enabled = models.BooleanField(default=False)
     social_login_github_enabled = models.BooleanField(default=False)

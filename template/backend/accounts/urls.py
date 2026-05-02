@@ -7,6 +7,7 @@ from .password_reset_views import (
 )
 from .views import (
     RegisterView,
+    RegisterCaptchaView,
     SocialAuthCallbackView,
     SocialAuthStartView,
     SocialProvidersView,
@@ -26,6 +27,7 @@ app_name = "accounts"
 
 urlpatterns = [
     # Authentication
+    path("register/captcha/", RegisterCaptchaView.as_view(), name="register_captcha"),
     path("register/", RegisterView.as_view(), name="register"),
     path("login/", login_view, name="login"),
     path("social/providers/", SocialProvidersView.as_view(), name="social_providers"),

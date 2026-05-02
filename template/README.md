@@ -1,6 +1,6 @@
-# Django + React Project Template with Authentication
+# Django + Next.js Project Template with Authentication
 
-A production-ready template for building full-stack web applications with Django REST Framework and React, featuring a complete authentication system.
+A production-ready template for building full-stack web applications with Django REST Framework and Next.js, featuring a complete authentication system.
 
 ## Table of Contents
 
@@ -36,13 +36,14 @@ A production-ready template for building full-stack web applications with Django
 - Admin interface
 - Automated testing setup
 
-### Frontend (React)
-- React 19 with Vite
+### Frontend (Next.js)
+- Next.js 16 App Router with React 19
 - **shadcn/ui** component library (Radix UI + Tailwind CSS)
-- React Router for navigation
+- File-based routing under `src/app/`
 - Tailwind CSS for styling
 - Axios with automatic token refresh
-- Context API for state management
+- TanStack Query for server state
+- Context API for app-wide state
 - Protected routes
 - Beautiful, accessible UI components
 - Dark mode ready
@@ -81,34 +82,32 @@ project-name/
 │   ├── .env.example           # Example environment file
 │   └── .gitignore             # Git ignore rules
 │
-├── frontend/                   # React frontend
+├── frontend/                   # Next.js frontend
 │   ├── public/                # Static files
+│   ├── src/app/               # App Router entrypoints and layouts
 │   ├── src/
-│   │   ├── components/        # React components
-│   │   │   ├── Navbar.jsx     # Navigation bar
-│   │   │   └── ProtectedRoute.jsx  # Route protection
+│   │   ├── components/        # Client components
+│   │   │   ├── Navbar.tsx     # Navigation bar
+│   │   │   └── ProtectedRoute.tsx  # Route protection
 │   │   ├── contexts/          # React contexts
-│   │   │   └── AuthContext.jsx     # Authentication context
-│   │   ├── pages/             # Page components
-│   │   │   ├── Home.jsx       # Home page
-│   │   │   ├── Login.jsx      # Login page
-│   │   │   ├── Register.jsx   # Registration page
-│   │   │   ├── Dashboard.jsx  # User dashboard
-│   │   │   └── Profile.jsx    # User profile
+│   │   │   └── AuthContext.tsx     # Authentication context
+│   │   ├── views/             # Route view components
+│   │   │   ├── Home.tsx       # Home page
+│   │   │   ├── Login.tsx      # Login page
+│   │   │   ├── Register.tsx   # Registration page
+│   │   │   ├── Dashboard.tsx  # User dashboard
+│   │   │   └── Profile.tsx    # User profile
 │   │   ├── services/          # API services
-│   │   │   └── api.js         # Axios configuration
+│   │   │   └── api.ts         # Axios configuration
 │   │   ├── hooks/             # Custom hooks (add your own)
 │   │   ├── utils/             # Utility functions (add your own)
-│   │   ├── assets/            # Images, fonts, etc.
-│   │   ├── App.jsx            # Main app component
-│   │   ├── main.jsx           # React entry point
-│   │   └── index.css          # Global styles
-│   ├── node_modules/          # Node dependencies
-│   ├── index.html             # HTML template
+│   │   └── lib/               # Shared helpers and theme utilities
 │   ├── package.json           # NPM dependencies
-│   ├── vite.config.js         # Vite configuration
+│   ├── next.config.ts         # Next.js rewrites and config
+│   ├── tsconfig.json          # TypeScript configuration
+│   ├── eslint.config.mjs      # ESLint configuration
 │   ├── tailwind.config.js     # Tailwind configuration
-│   ├── postcss.config.js      # PostCSS configuration
+│   ├── postcss.config.mjs     # PostCSS configuration
 │   ├── .env                   # Environment variables (not in git)
 │   ├── .env.example           # Example environment file
 │   └── .gitignore             # Git ignore rules
@@ -116,7 +115,7 @@ project-name/
 ├── setup.sh                   # Automated setup script
 ├── setup_database.sh          # Database setup script
 ├── start_backend.sh           # Start Django server
-├── start_frontend.sh          # Start React dev server
+├── start_frontend.sh          # Start Next.js dev server
 ├── start.sh                   # Start both servers
 └── README.md                  # This file
 ```
@@ -185,7 +184,7 @@ cd your-project-name
 ./start.sh  # Starts both backend and frontend
 ```
 
-- Frontend: http://localhost:5555
+- Frontend: http://localhost:3000
 - Backend API: http://localhost:8000/api
 - Django Admin: http://localhost:8000/admin
 
@@ -250,7 +249,7 @@ npm install
 
 # Create .env file
 cp .env.example .env
-# Edit .env with your configuration
+# Edit .env if needed (the default `/api` value works for local dev)
 
 # Start development server
 npm run dev
@@ -264,26 +263,35 @@ npm run dev
 
 ```env
 # Django Settings
-DJANGO_SECRET_KEY=your-secret-key-here
+DJANGO_SECRET_KEY=__REQUIRED__
+JWT_SIGNING_KEY=__REQUIRED__
 DEBUG=True
 ALLOWED_HOSTS=localhost,127.0.0.1
+TRUST_X_FORWARDED_PROTO=False
 
 # Database
 DB_NAME=your_db_name
-DB_USER=postgres
-DB_PASSWORD=postgres
+DB_USER=__REQUIRED__
+DB_PASSWORD=__REQUIRED__
 DB_HOST=localhost
 DB_PORT=5432
 
 # Redis
+USE_REDIS=False
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
+# TRUSTED_PROXY_IPS=127.0.0.1
 ```
+
+For production, set `USE_REDIS=true` and point it at a shared Redis instance. Django `LocMemCache` is not enough for reliable API rate limiting when you run multiple app workers, and `TRUSTED_PROXY_IPS` must be set correctly if your app sits behind Nginx, Traefik, Cloudflare, or another reverse proxy.
 
 ### Frontend (.env)
 
 ```env
-VITE_API_URL=http://localhost:8000/api
+BACKEND_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=/api
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
+NEXT_PUBLIC_DJANGO_ADMIN_URL=http://localhost:8000/admin
 ```
 
 ---
@@ -294,6 +302,7 @@ VITE_API_URL=http://localhost:8000/api
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
+| GET | `/api/auth/register/captcha/` | Issue the signup CAPTCHA challenge and signed registration token | No |
 | POST | `/api/auth/register/` | Register new user | No |
 | POST | `/api/auth/login/` | Login user | No |
 | POST | `/api/auth/logout/` | Logout user | Yes |
@@ -314,7 +323,11 @@ POST /api/auth/register/
   "password": "SecurePass123!",
   "password2": "SecurePass123!",
   "first_name": "John",
-  "last_name": "Doe"
+  "last_name": "Doe",
+  "registration_token": "signed-token-from-/api/auth/register/captcha/",
+  "captcha_id": "captcha-id-when-enabled",
+  "captcha_answer": "12",
+  "company_website": ""
 }
 
 Response:
@@ -325,12 +338,12 @@ Response:
     "email": "john@example.com",
     ...
   },
-  "tokens": {
-    "access": "access_token",
-    "refresh": "refresh_token"
-  }
+  "access_token": "access_token",
+  "message": "User registered successfully."
 }
 ```
+
+Before posting registration, fetch `/api/auth/register/captcha/`. It always returns a signed `registration_token`, and when signup CAPTCHA is enabled it also returns `captcha_id` and a simple arithmetic prompt.
 
 **Login:**
 ```json
@@ -349,11 +362,14 @@ Response: Same as register
 
 | Route | Component | Protected | Description |
 |-------|-----------|-----------|-------------|
-| `/` | Home | No | Landing page |
-| `/login` | Login | No | Login page |
-| `/register` | Register | No | Registration page |
-| `/dashboard` | Dashboard | Yes | User dashboard |
-| `/profile` | Profile | Yes | User profile page |
+| `/` | `src/app/page.tsx` → `Home` | No | Landing page |
+| `/login` | `src/app/login/page.tsx` → `Login` | No | Login page |
+| `/register` | `src/app/register/page.tsx` → `Register` | No | Registration page |
+| `/verify-email` | `src/app/verify-email/page.tsx` → `VerifyEmail` | No | Email verification flow |
+| `/pricing` | `src/app/pricing/page.tsx` → `Pricing` | No | Plan selection and checkout entry |
+| `/dashboard` | `src/app/dashboard/page.tsx` → `Dashboard` | Yes | User dashboard |
+| `/profile` | `src/app/profile/page.tsx` → `Profile` | Yes | User profile page |
+| `/admin/*` | `src/app/admin/**/page.tsx` | Staff | Admin dashboard, users, payments, settings |
 
 ---
 
@@ -361,20 +377,20 @@ Response: Same as register
 
 ### 1. Port Conflicts
 
-**Problem:** Ports 8000 or 5555 are already in use.
+**Problem:** Ports 8000 or 3000 are already in use.
 
 **Solution:**
 ```bash
 # Find and kill process on port 8000
 lsof -ti:8000 | xargs kill -9
 
-# Find and kill process on port 5555
-lsof -ti:5555 | xargs kill -9
+# Find and kill process on port 3000
+lsof -ti:3000 | xargs kill -9
 ```
 
 Or change ports in:
 - Backend: `python manage.py runserver <new_port>`
-- Frontend: `vite.config.js` → `server.port`
+- Frontend: `npm run dev -- --port 3001`
 
 ### 2. PostgreSQL Not Running
 
@@ -410,13 +426,7 @@ pip install -r requirements.txt
 
 **Problem:** Frontend can't access backend API.
 
-**Solution:** Check `backend/settings.py`:
-```python
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5555",
-    "http://127.0.0.1:5555",
-]
-```
+**Solution:** In local development, keep `frontend/.env` on `NEXT_PUBLIC_API_URL=/api` so the browser talks to Next.js on `localhost:3000` and Next rewrites requests to Django. If you point the browser directly at `http://localhost:8000/api`, then also make sure `APP_ORIGIN`, `PUBLIC_APP_URL`, and `CORS_ALLOWED_ORIGINS` in `backend/.env` / `settings.py` match your frontend origin.
 
 ### 5. Token Expiration
 
@@ -471,13 +481,13 @@ After setting up the project, you may want to customize the following:
 ### 1. Project Branding
 
 **Files to update:**
-- `frontend/src/components/Navbar.jsx` - Update project name
-- `frontend/index.html` - Update page title
-- `frontend/public/` - Add your logo/favicon
+- `frontend/src/components/Navbar.tsx` - Update project name and navigation labels
+- `frontend/src/app/layout.tsx` - Update metadata title and description
+- `frontend/public/branding/` - Replace the bundled branding images/logo
 
 ### 2. Django Secret Key
 
-For production, generate a new secret key:
+For production, generate new values for both Django signing secrets:
 ```python
 from django.core.management.utils import get_random_secret_key
 print(get_random_secret_key())
@@ -486,6 +496,7 @@ print(get_random_secret_key())
 Update in `backend/.env`:
 ```env
 DJANGO_SECRET_KEY=your-new-secret-key-here
+JWT_SIGNING_KEY=your-separate-jwt-signing-key
 ```
 
 ### 3. Database Configuration
@@ -511,8 +522,11 @@ CORS_ALLOWED_ORIGINS = [
 
 Update `frontend/.env`:
 ```env
-VITE_API_URL=https://api.yourdomain.com/api
+BACKEND_URL=https://api.yourdomain.com
+NEXT_PUBLIC_API_URL=https://api.yourdomain.com/api
 ```
+
+For local development, keep `BACKEND_URL=http://localhost:8000` and `NEXT_PUBLIC_API_URL=/api` so Next.js proxies requests to Django and you avoid browser CORS issues.
 
 ### 6. Add Your App
 
@@ -556,7 +570,7 @@ EMAIL_HOST_PASSWORD=your-app-password
 
 ### 9. Add More Frontend Pages
 
-Create new pages in `frontend/src/pages/` and add routes in `App.jsx`
+Create or update a view in `frontend/src/views/`, then wire a route entrypoint in `frontend/src/app/<route>/page.tsx`.
 
 ### 10. Customize Styling
 
@@ -571,6 +585,8 @@ theme: {
   },
 },
 ```
+
+Most visual tokens also live in `frontend/src/app/globals.css` and `frontend/src/lib/siteTheme.ts`.
 
 ---
 
@@ -596,8 +612,8 @@ theme: {
    ```bash
    cd frontend
 
-   # Create components/pages
-   # Add routes
+   # Create components/views
+   # Add or update a page entry under src/app/
    # Create API service functions
    npm run dev
    ```
@@ -627,7 +643,8 @@ python manage.py test
 **Frontend:**
 ```bash
 cd frontend
-npm test
+npm run lint
+npx tsc --noEmit
 ```
 
 ---
@@ -659,16 +676,15 @@ pytest
 
 ### Frontend Testing
 
-Add tests in `src/` directories. Example with React Testing Library:
-```javascript
-import { render, screen } from '@testing-library/react'
-import Home from './Home'
+The template currently ships with linting and TypeScript checks, not a bundled frontend test runner. The default verification commands are:
 
-test('renders home page', () => {
-  render(<Home />)
-  expect(screen.getByText(/welcome/i)).toBeInTheDocument()
-})
+```bash
+cd frontend
+npm run lint
+npx tsc --noEmit
 ```
+
+If you want component or end-to-end tests, add your preferred stack on top of the template, such as React Testing Library, Vitest, or Playwright.
 
 ---
 
@@ -700,12 +716,17 @@ test('renders home page', () => {
    npm run build
    ```
 
-2. **Deploy `dist/` folder** to your hosting service (Netlify, Vercel, etc.)
+2. **Run the production server** locally with:
+   ```bash
+   npm run start
+   ```
+
+3. **Deploy the Next.js app** to a platform that supports Node-based Next.js runtimes, such as Vercel, Railway, or a container/VM setup.
 
 ### Recommended Hosting
 
 - **Backend:** Heroku, Railway, DigitalOcean, AWS
-- **Frontend:** Vercel, Netlify, AWS S3 + CloudFront
+- **Frontend:** Vercel, Railway, Docker/VM hosting for Next.js
 - **Database:** AWS RDS, ElephantSQL, DigitalOcean Managed Databases
 
 ---
@@ -739,7 +760,7 @@ npm install
 node --version
 
 # Try alternative port
-npm run dev -- --port 3000
+npm run dev -- --port 3001
 ```
 
 ### Database connection failed
@@ -758,9 +779,10 @@ psql -U your_user -d your_db_name
 ### Token issues
 
 Check:
-1. Tokens are being stored in localStorage
-2. API interceptor is adding Authorization header
-3. Token hasn't expired (check JWT settings)
+1. The access token is being refreshed successfully from `/api/auth/token/refresh/`
+2. The refresh cookie is present in the browser
+3. The API interceptor is adding the `Authorization` header after login
+4. Token lifetime settings in `SIMPLE_JWT` match your expectations
 
 ### Build errors
 
@@ -780,8 +802,8 @@ npm run build
 
 - [Django Documentation](https://docs.djangoproject.com/)
 - [Django REST Framework](https://www.django-rest-framework.org/)
+- [Next.js Documentation](https://nextjs.org/docs)
 - [React Documentation](https://react.dev/)
-- [Vite Documentation](https://vitejs.dev/)
 - [**shadcn/ui Documentation**](https://ui.shadcn.com/) - See [SHADCN_UI_GUIDE.md](SHADCN_UI_GUIDE.md) for detailed usage
 - [Radix UI](https://www.radix-ui.com/) - Accessible component primitives
 - [Lucide Icons](https://lucide.dev/) - Beautiful icon library
@@ -794,7 +816,7 @@ npm run build
 
 For issues related to:
 - **Template bugs:** Create an issue in the template repository
-- **Django/React general questions:** Check official documentation
+- **Django/Next.js general questions:** Check official documentation
 - **Database issues:** Check PostgreSQL documentation
 
 ---

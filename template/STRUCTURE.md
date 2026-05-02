@@ -5,32 +5,33 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         BROWSER                              │
-│                    http://localhost:5555                     │
+│                    http://localhost:3000                     │
 └──────────────────────┬──────────────────────────────────────┘
                        │
-                       │ HTTP Requests + JWT (Bearer token)
+                       │ App routes + same-origin API requests
                        │
 ┌──────────────────────▼──────────────────────────────────────┐
-│                    REACT FRONTEND                            │
-│                     (Vite + React 19)                        │
+│                   NEXT.JS FRONTEND                           │
+│              (App Router + React 19 client views)            │
 │                                                               │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │  Contexts: AuthContext · SiteThemeContext            │    │
-│  │  Providers: ToastProvider                            │    │
+│  │  Providers: QueryClient · ToastProvider              │    │
 │  └─────────────────────────────────────────────────────┘    │
 │                                                               │
-│  Pages: Home · Login · Register · Dashboard · Profile        │
-│         VerifyEmail · ForgotPassword · ResetPassword         │
-│         Pricing · PaymentSuccess · PaymentFailed             │
-│         Admin (Dashboard · Users · Payments · Settings)      │
+│  App routes: / · /login · /register · /dashboard · /profile │
+│              /verify-email · /forgot-password                │
+│              /reset-password · /pricing                      │
+│              /payment/success · /payment/failed              │
+│              /admin/*                                        │
 │                                                               │
 │  ┌─────────────────────────────────────────────────────┐    │
-│  │  Services (api.js · auth.js · payments.js ·          │    │
-│  │            subscriptions.js · admin.js)              │    │
+│  │  Services (api.ts · auth.ts · payments.ts ·          │    │
+│  │            subscriptions.ts · admin.ts)              │    │
 │  └─────────────────────────────────────────────────────┘    │
 └──────────────────────┬──────────────────────────────────────┘
                        │
-                       │ REST API (http://localhost:8000/api)
+                       │ Next.js rewrite: /api/* → http://localhost:8000/api/*
                        │
 ┌──────────────────────▼──────────────────────────────────────┐
 │                   DJANGO BACKEND                             │
@@ -122,50 +123,56 @@ subscriptions/
 
 ```
 frontend/src/
-├── App.jsx                # Route definitions + providers
-├── main.jsx               # React entry point
-├── index.css              # Global styles + CSS variables
+├── app/
+│   ├── layout.tsx         # Root HTML/body wrapper
+│   ├── providers.tsx      # Query + auth + theme + toast providers
+│   ├── ClientShell.tsx    # Shared client layout behavior
+│   ├── page.tsx           # `/`
+│   ├── login/page.tsx     # `/login`
+│   ├── register/page.tsx  # `/register`
+│   ├── dashboard/page.tsx # `/dashboard`
+│   └── admin/...          # Admin route entrypoints
 │
 ├── contexts/
-│   ├── AuthContext.jsx    # user, login, register, logout, email_verified state
-│   └── SiteThemeContext.jsx# Site-wide theme from API
+│   ├── AuthContext.tsx     # user, login, register, logout, email_verified state
+│   └── SiteThemeContext.tsx# Site-wide theme from API
 │
 ├── hooks/
-│   └── useToast.jsx       # Toast notification hook
+│   └── useToast.tsx       # Toast notification hook
 │
 ├── components/
-│   ├── Navbar.jsx         # Logo, navigation, user dropdown, subscription badge
-│   ├── ProtectedRoute.jsx # Requires authenticated user
-│   ├── AdminRoute.jsx     # Requires is_staff user
+│   ├── Navbar.tsx         # Logo, navigation, user dropdown, subscription badge
+│   ├── ProtectedRoute.tsx # Requires authenticated user
+│   ├── AdminRoute.tsx     # Requires is_staff user
 │   └── ui/                # shadcn/ui components (button, card, dialog, etc.)
 │
-├── pages/
-│   ├── Home.jsx           # Public landing page
-│   ├── Login.jsx          # Login form
-│   ├── Register.jsx       # Registration form
-│   ├── VerifyEmail.jsx    # Email verification gate
-│   ├── ForgotPassword.jsx # Password reset request
-│   ├── ResetPassword.jsx  # Password reset confirm
-│   ├── Pricing.jsx        # Plans from API, Stripe/bKash CTAs
-│   ├── PaymentSuccess.jsx # Post-payment success page
-│   ├── PaymentFailed.jsx  # Post-payment failure page
-│   ├── Dashboard.jsx      # User dashboard (subscription status, usage)
-│   ├── Profile.jsx        # Profile editor (avatar, org, password change)
+├── views/
+│   ├── Home.tsx           # Public landing page
+│   ├── Login.tsx          # Login form
+│   ├── Register.tsx       # Registration form
+│   ├── VerifyEmail.tsx    # Email verification gate
+│   ├── ForgotPassword.tsx # Password reset request
+│   ├── ResetPassword.tsx  # Password reset confirm
+│   ├── Pricing.tsx        # Plans from API, Stripe/bKash CTAs
+│   ├── PaymentSuccess.tsx # Post-payment success page
+│   ├── PaymentFailed.tsx  # Post-payment failure page
+│   ├── Dashboard.tsx      # User dashboard (subscription status, usage)
+│   ├── Profile.tsx        # Profile editor (avatar, org, password change)
 │   └── admin/
-│       ├── AdminLayout.jsx    # Sidebar + outlet
-│       ├── AdminDashboard.jsx # Metrics: users, revenue, signups
-│       ├── AdminUsers.jsx     # User list with search/filter
-│       ├── AdminUserDetail.jsx# User edit + subscription override
-│       ├── AdminPayments.jsx  # Stripe + bKash payment history
-│       ├── AdminSettings.jsx  # Toggle email verification, AI provider
-│       └── admin-helpers.js   # Formatting utilities
+│       ├── AdminLayout.tsx     # Sidebar + layout shell
+│       ├── AdminDashboard.tsx  # Metrics: users, revenue, signups
+│       ├── AdminUsers.tsx      # User list with search/filter
+│       ├── AdminUserDetail.tsx # User edit + subscription override
+│       ├── AdminPayments.tsx   # Stripe + bKash payment history
+│       ├── AdminSettings.tsx   # Toggle email verification, AI provider
+│       └── admin-helpers.ts    # Formatting utilities
 │
 └── services/
-    ├── api.js             # Axios instance + JWT interceptors
-    ├── auth.js            # Email verify, password reset endpoints
-    ├── payments.js        # Stripe checkout, bKash create, session status
-    ├── subscriptions.js   # Plan list, current sub, usage, cancel
-    └── admin.js           # Admin users/payments/settings API
+    ├── api.ts             # Axios instance + JWT interceptors
+    ├── auth.ts            # Email verify, password reset endpoints
+    ├── payments.ts        # Stripe checkout, bKash create, session status
+    ├── subscriptions.ts   # Plan list, current sub, usage, cancel
+    └── admin.ts           # Admin users/payments/settings API
 ```
 
 ## Authentication Flow
@@ -173,7 +180,7 @@ frontend/src/
 ```
 Register → Email verification (if enabled) → Login
            ↓
-    JWT access token (1h) + HttpOnly cookie refresh token (7d)
+    Access token stored in memory + HttpOnly cookie refresh token (7d)
            ↓
     Token auto-refresh via axios interceptor on 401
            ↓
@@ -205,7 +212,7 @@ User clicks "Pay with bKash" → POST /api/payments/bkash/create/
 |------|------|-------------|
 | `/admin` | AdminDashboard | `is_staff=True` |
 | `/admin/users` | AdminUsers | `is_staff=True` |
-| `/admin/users/:id` | AdminUserDetail | `is_staff=True` |
+| `/admin/users/:userId` | AdminUserDetail | `is_staff=True` |
 | `/admin/payments` | AdminPayments | `is_staff=True` |
 | `/admin/settings` | AdminSettings | `is_staff=True` |
 
@@ -279,8 +286,9 @@ token_blacklist_outstandingtoken, token_blacklist_blacklistedtoken
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_API_URL` | Backend API URL |
-| `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key |
+| `NEXT_PUBLIC_API_URL` | Backend API URL. Use `/api` in local development so Next.js proxies to Django |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key |
+| `NEXT_PUBLIC_DJANGO_ADMIN_URL` | Optional Django admin shortcut link used in the frontend |
 
 ## Adding Your App Features
 
@@ -291,13 +299,13 @@ token_blacklist_outstandingtoken, token_blacklist_blacklistedtoken
    ├─ Define models (FK to accounts.User for ownership)
    ├─ Wire up LicenseService.check_can_create_item() for plan limits
    ├─ Create serializers + views + urls
-   └─ Register in reactdjango/urls.py
+   └─ Register in backend/<project_name>/urls.py
 
 2. Frontend
    ├─ Add API calls to src/services/
-   ├─ Create pages in src/pages/
-   ├─ Add routes to src/App.jsx
-   └─ Use ProtectedRoute for authenticated pages
+   ├─ Create or update views in src/views/
+   ├─ Add route entrypoints in src/app/<route>/page.tsx
+   └─ Use ProtectedRoute / AdminRoute for authenticated pages
 
 3. Subscription limits
    └─ Override LicenseService.get_item_count() in services.py:

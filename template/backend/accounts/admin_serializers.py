@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
@@ -116,12 +117,15 @@ class SiteSettingsAdminSerializer(serializers.ModelSerializer):
     social_login_google_meta = serializers.SerializerMethodField()
     social_login_facebook_meta = serializers.SerializerMethodField()
     social_login_github_meta = serializers.SerializerMethodField()
+    rate_limit_storage_meta = serializers.SerializerMethodField()
 
     class Meta:
         model = SiteSettings
         fields = [
             "require_email_verification",
             "logged_in_users_only_default",
+            "signup_captcha_enabled",
+            "signup_disposable_email_blocking_enabled",
             "social_login_google_enabled",
             "social_login_facebook_enabled",
             "social_login_github_enabled",
@@ -134,6 +138,7 @@ class SiteSettingsAdminSerializer(serializers.ModelSerializer):
             "social_login_google_meta",
             "social_login_facebook_meta",
             "social_login_github_meta",
+            "rate_limit_storage_meta",
         ]
 
     def get_ai_secret_storage_mode(self, obj):
@@ -165,10 +170,31 @@ class SiteSettingsAdminSerializer(serializers.ModelSerializer):
         status = get_social_provider_status("github", obj)
         return {"configured": status.configured, "source": status.source}
 
+    def get_rate_limit_storage_meta(self, obj):
+        cache_backend = settings.CACHES["default"]["BACKEND"]
+        use_redis = bool(getattr(settings, "USE_REDIS", False))
+        is_shared_backend = cache_backend == "django.core.cache.backends.redis.RedisCache"
+        warning = ""
+        if getattr(settings, "IS_PRODUCTION", False) and (not use_redis or not is_shared_backend):
+            warning = (
+                "Production rate limiting requires USE_REDIS=true with a shared Redis cache. "
+                "LocMemCache splits throttle state across workers."
+            )
+        return {
+            "environment": getattr(settings, "ENVIRONMENT", "development"),
+            "use_redis": use_redis,
+            "cache_backend": cache_backend,
+            "is_shared_backend": is_shared_backend,
+            "trusted_proxy_ips_configured": bool(getattr(settings, "TRUSTED_PROXY_IPS", [])),
+            "warning": warning,
+        }
+
 
 class SiteSettingsUpdateSerializer(serializers.Serializer):
     require_email_verification = serializers.BooleanField(required=False)
     logged_in_users_only_default = serializers.BooleanField(required=False)
+    signup_captcha_enabled = serializers.BooleanField(required=False)
+    signup_disposable_email_blocking_enabled = serializers.BooleanField(required=False)
     social_login_google_enabled = serializers.BooleanField(required=False)
     social_login_facebook_enabled = serializers.BooleanField(required=False)
     social_login_github_enabled = serializers.BooleanField(required=False)

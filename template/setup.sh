@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Django + React Project Setup Script
-# This script sets up a new Django + React project with authentication
+# Django + Next.js Project Setup Script
+# This script sets up a new Django + Next.js project with authentication
 # Based on template from AniFight project
 
 set -e  # Exit on error
@@ -12,9 +12,11 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMPLATE_PARENT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║   Django + React SaaS Starter Setup                   ║${NC}"
+echo -e "${BLUE}║   Django + Next.js SaaS Starter Setup                 ║${NC}"
 echo -e "${BLUE}║   Auth · Subscriptions · Payments · Admin Panel       ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════════════════╝${NC}"
 echo ""
@@ -34,6 +36,10 @@ print_info() {
 
 print_warning() {
     echo -e "${YELLOW}⚠ $1${NC}"
+}
+
+escape_sed_replacement() {
+    printf '%s' "$1" | sed 's/[\/&]/\\&/g'
 }
 
 # Check if required commands are available
@@ -57,9 +63,19 @@ get_user_inputs() {
     read -p "$(echo -e ${BLUE}Enter project name [my_project]: ${NC})" PROJECT_NAME
     PROJECT_NAME=${PROJECT_NAME:-my_project}
 
+    if [[ ! $PROJECT_NAME =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        print_error "Project name must be a valid Python package name: letters, numbers, and underscores only, and it cannot start with a number."
+        exit 1
+    fi
+
     # Database name
     read -p "$(echo -e ${BLUE}Enter database name [${PROJECT_NAME}_db]: ${NC})" DB_NAME
     DB_NAME=${DB_NAME:-${PROJECT_NAME}_db}
+
+    if [[ ! $DB_NAME =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        print_error "Database name must use letters, numbers, and underscores only, and it cannot start with a number."
+        exit 1
+    fi
 
     # Database user
     read -p "$(echo -e ${BLUE}Enter database user [postgres]: ${NC})" DB_USER
@@ -78,12 +94,18 @@ get_user_inputs() {
     read -p "$(echo -e ${BLUE}Enter database port [5432]: ${NC})" DB_PORT
     DB_PORT=${DB_PORT:-5432}
 
+    if [[ ! $DB_PORT =~ ^[0-9]+$ ]]; then
+        print_error "Database port must be numeric."
+        exit 1
+    fi
+
     # Project directory
-    read -p "$(echo -e ${BLUE}Enter project directory path [$(pwd)/${PROJECT_NAME}]: ${NC})" PROJECT_DIR
-    PROJECT_DIR=${PROJECT_DIR:-$(pwd)/${PROJECT_NAME}}
+    read -p "$(echo -e ${BLUE}Enter project directory path [${TEMPLATE_PARENT_DIR}/${PROJECT_NAME}]: ${NC})" PROJECT_DIR
+    PROJECT_DIR=${PROJECT_DIR:-${TEMPLATE_PARENT_DIR}/${PROJECT_NAME}}
 
     # Django secret key - generate without Django dependency
     DJANGO_SECRET_KEY=$(python3 -c 'import secrets; import string; chars = string.ascii_letters + string.digits + "!@#$%^&*(-_=+)"; print("".join(secrets.choice(chars) for _ in range(50)))')
+    JWT_SIGNING_KEY=$(python3 -c 'import secrets; import string; chars = string.ascii_letters + string.digits + "!@#$%^&*(-_=+)"; print("".join(secrets.choice(chars) for _ in range(50)))')
 
     echo ""
     print_info "Summary of your inputs:"
@@ -117,6 +139,15 @@ create_project_directory() {
         mkdir -p "$PROJECT_DIR"
     fi
 
+    PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
+
+    case "$PROJECT_DIR/" in
+        "$SCRIPT_DIR/"*)
+            print_error "Project directory cannot be the template directory or any folder inside it. Choose a sibling directory outside: $SCRIPT_DIR"
+            exit 1
+            ;;
+    esac
+
     print_success "Project directory created/verified"
 }
 
@@ -124,26 +155,34 @@ create_project_directory() {
 copy_template_files() {
     print_info "Copying template files..."
 
-    TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    PROJECT_DIR_ABS="$(cd "$PROJECT_DIR" && pwd)"
-
-    if [ "$PROJECT_DIR_ABS" = "$TEMPLATE_DIR" ]; then
+    if [ "$PROJECT_DIR" = "$SCRIPT_DIR" ]; then
         print_error "Project directory cannot be the template directory itself."
         exit 1
     fi
 
     # The user already approved overwrite in create_project_directory.
     # Remove prior generated app folders so stale files cannot survive.
-    rm -rf "$PROJECT_DIR_ABS/backend" "$PROJECT_DIR_ABS/frontend"
+    rm -rf "$PROJECT_DIR/backend" "$PROJECT_DIR/frontend"
 
     # Copy backend
-    cp -r "$TEMPLATE_DIR/backend" "$PROJECT_DIR_ABS/"
+    cp -r "$SCRIPT_DIR/backend" "$PROJECT_DIR/"
 
     # Copy frontend
-    cp -r "$TEMPLATE_DIR/frontend" "$PROJECT_DIR_ABS/"
+    cp -r "$SCRIPT_DIR/frontend" "$PROJECT_DIR/"
+
+    # Copy project-level utilities that remain useful after installation.
+    for file in .editorconfig QUICKSTART.md setup_database.sh; do
+        if [ -e "$SCRIPT_DIR/$file" ]; then
+            cp -R "$SCRIPT_DIR/$file" "$PROJECT_DIR/$file"
+        fi
+    done
 
     # Rename Django project folder
-    mv "$PROJECT_DIR_ABS/backend/{{PROJECT_NAME}}" "$PROJECT_DIR_ABS/backend/$PROJECT_NAME"
+    mv "$PROJECT_DIR/backend/{{PROJECT_NAME}}" "$PROJECT_DIR/backend/$PROJECT_NAME"
+
+    if [ -f "$PROJECT_DIR/setup_database.sh" ]; then
+        chmod +x "$PROJECT_DIR/setup_database.sh"
+    fi
 
     print_success "Template files copied"
 }
@@ -152,15 +191,20 @@ copy_template_files() {
 replace_placeholders() {
     print_info "Replacing placeholders in files..."
 
+    local escaped_project_name
+    local escaped_db_name
+    escaped_project_name=$(escape_sed_replacement "$PROJECT_NAME")
+    escaped_db_name=$(escape_sed_replacement "$DB_NAME")
+
     # Find and replace in all files
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
-        find "$PROJECT_DIR" -type f \( -name "*.py" -o -name "*.js" -o -name "*.jsx" -o -name "*.json" -o -name "*.html" -o -name "*.md" -o -name ".env*" \) -exec sed -i '' "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" {} +
-        find "$PROJECT_DIR" -type f \( -name "*.py" -o -name "*.js" -o -name "*.jsx" -o -name "*.json" -o -name "*.html" -o -name "*.md" -o -name ".env*" \) -exec sed -i '' "s/{{DB_NAME}}/$DB_NAME/g" {} +
+        find "$PROJECT_DIR" -type f \( -name "*.py" -o -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.html" -o -name "*.md" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.sh" -o -name ".env*" \) -exec sed -i '' "s/{{PROJECT_NAME}}/$escaped_project_name/g" {} +
+        find "$PROJECT_DIR" -type f \( -name "*.py" -o -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.html" -o -name "*.md" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.sh" -o -name ".env*" \) -exec sed -i '' "s/{{DB_NAME}}/$escaped_db_name/g" {} +
     else
         # Linux
-        find "$PROJECT_DIR" -type f \( -name "*.py" -o -name "*.js" -o -name "*.jsx" -o -name "*.json" -o -name "*.html" -o -name "*.md" -o -name ".env*" \) -exec sed -i "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" {} +
-        find "$PROJECT_DIR" -type f \( -name "*.py" -o -name "*.js" -o -name "*.jsx" -o -name "*.json" -o -name "*.html" -o -name "*.md" -o -name ".env*" \) -exec sed -i "s/{{DB_NAME}}/$DB_NAME/g" {} +
+        find "$PROJECT_DIR" -type f \( -name "*.py" -o -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.html" -o -name "*.md" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.sh" -o -name ".env*" \) -exec sed -i "s/{{PROJECT_NAME}}/$escaped_project_name/g" {} +
+        find "$PROJECT_DIR" -type f \( -name "*.py" -o -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.html" -o -name "*.md" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.sh" -o -name ".env*" \) -exec sed -i "s/{{DB_NAME}}/$escaped_db_name/g" {} +
     fi
 
     print_success "Placeholders replaced"
@@ -174,11 +218,13 @@ create_env_files() {
     cat > "$PROJECT_DIR/backend/.env" << EOF
 # Django settings
 DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY
+JWT_SIGNING_KEY=$JWT_SIGNING_KEY
 DEBUG=True
 ENVIRONMENT=development
-APP_ORIGIN=http://localhost:5555
-PUBLIC_APP_URL=http://localhost:5555
+APP_ORIGIN=http://localhost:3000
+PUBLIC_APP_URL=http://localhost:3000
 API_ORIGIN=http://localhost:8000
+TRUST_X_FORWARDED_PROTO=False
 
 # Database settings
 DB_NAME=$DB_NAME
@@ -188,12 +234,24 @@ DB_HOST=$DB_HOST
 DB_PORT=$DB_PORT
 
 # Redis settings
+USE_REDIS=False
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
+# TRUSTED_PROXY_IPS=
 
 # Celery
 CELERY_BROKER_URL=redis://127.0.0.1:6379/2
 CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/2
+
+# Signup protection
+# SIGNUP_REGISTER_BURST_RATE=1/15s
+# SIGNUP_REGISTER_SHORT_WINDOW_RATE=3/10m
+# SIGNUP_REGISTER_SUSTAINED_RATE=10/h
+# SIGNUP_CAPTCHA_TTL_SECONDS=600
+# SIGNUP_FORM_MIN_AGE_SECONDS=3
+# SIGNUP_FORM_MAX_AGE_SECONDS=3600
+# SIGNUP_DISPOSABLE_EMAIL_BLOCKLIST=
+# SIGNUP_DISPOSABLE_EMAIL_ALLOWLIST=
 
 # Email — set these before going to production
 # In dev, console backend prints emails to the terminal (no SMTP needed)
@@ -229,8 +287,10 @@ EOF
 
     # Frontend .env
     cat > "$PROJECT_DIR/frontend/.env" << 'EOF'
-VITE_API_URL=http://localhost:8000/api
-VITE_STRIPE_PUBLISHABLE_KEY=
+BACKEND_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=/api
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
+NEXT_PUBLIC_DJANGO_ADMIN_URL=http://localhost:8000/admin
 EOF
 
     print_success ".env files created"
@@ -336,13 +396,17 @@ create_superuser() {
 
 # Setup frontend
 setup_frontend() {
-    print_info "Setting up React frontend..."
+    print_info "Setting up Next.js frontend..."
 
     cd "$PROJECT_DIR/frontend"
 
     # Install npm packages
     print_info "Installing npm dependencies (this may take a few minutes)..."
-    npm install
+    if [ -f package-lock.json ]; then
+        npm ci
+    else
+        npm install
+    fi
 
     print_success "Frontend setup complete"
 }
@@ -379,7 +443,7 @@ BACKEND_PID=$!
 FRONTEND_PID=$!
 
 echo "Backend running on http://localhost:8000"
-echo "Frontend running on http://localhost:5555"
+echo "Frontend running on http://localhost:3000"
 echo ""
 echo "Press Ctrl+C to stop both servers"
 
@@ -414,7 +478,7 @@ print_final_instructions() {
     echo "  Frontend: cd $PROJECT_DIR/frontend && npm run dev"
     echo ""
     print_info "URLs:"
-    echo "  Frontend:       http://localhost:5555"
+    echo "  Frontend:       http://localhost:3000"
     echo "  Backend API:    http://localhost:8000/api"
     echo "  Django Admin:   http://localhost:8000/admin"
     echo ""
@@ -424,6 +488,9 @@ print_final_instructions() {
     echo "    EMAIL_BACKEND / EMAIL_HOST / EMAIL_HOST_USER / EMAIL_HOST_PASSWORD"
     echo "      → dev default: console backend (emails print to terminal, no SMTP needed)"
     echo "      → production: set EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend"
+    echo ""
+    echo "    DJANGO_SECRET_KEY / JWT_SIGNING_KEY"
+    echo "      → generated for local development; replace both with strong random values in production"
     echo ""
     echo "    STRIPE_SECRET_KEY / STRIPE_PUBLISHABLE_KEY / STRIPE_WEBHOOK_SECRET"
     echo "      → get keys from https://dashboard.stripe.com/apikeys"
@@ -439,16 +506,38 @@ print_final_instructions() {
     echo "      → add provider credentials, restart backend, then enable providers in the admin panel"
     echo ""
     echo -e "  ${YELLOW}$PROJECT_DIR/frontend/.env${NC}"
-    echo "    VITE_STRIPE_PUBLISHABLE_KEY"
+    echo "    BACKEND_URL"
+    echo "      → server-side rewrite target used by Next.js (/api/* -> BACKEND_URL/api/*)"
+    echo ""
+    echo "    NEXT_PUBLIC_API_URL"
+    echo "      → dev default: /api (Next.js rewrite keeps browser requests same-origin)"
+    echo ""
+    echo "    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"
     echo "      → your Stripe publishable key (pk_live_... or pk_test_...)"
+    echo ""
+    echo "    NEXT_PUBLIC_DJANGO_ADMIN_URL"
+    echo "      → optional admin shortcut shown in the frontend admin area"
     echo ""
     print_info "Next steps:"
     echo "  1. Fill in the credentials above in backend/.env and frontend/.env"
     echo "  2. Update Plan prices/limits in Django admin (/admin) or via shell"
-    echo "  3. Review README.md for full documentation"
+    echo "  3. Review QUICKSTART.md and frontend/README.md for documentation"
     echo "  4. Start building your app features!"
     echo ""
     print_success "Happy coding! 🚀"
+}
+
+offer_template_cleanup() {
+    echo ""
+    read -p "$(echo -e ${YELLOW}Installation is complete. Do you want to delete the template folder at ${SCRIPT_DIR}? [y/N]: ${NC})" DELETE_TEMPLATE
+
+    if [[ $DELETE_TEMPLATE =~ ^[Yy]$ ]]; then
+        cd "$TEMPLATE_PARENT_DIR"
+        rm -rf "$SCRIPT_DIR"
+        print_success "Deleted template folder: $SCRIPT_DIR"
+    else
+        print_info "Kept template folder at: $SCRIPT_DIR"
+    fi
 }
 
 # Main execution
@@ -475,6 +564,7 @@ main() {
     setup_frontend
     create_start_scripts
     print_final_instructions
+    offer_template_cleanup
 }
 
 # Run main function

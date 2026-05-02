@@ -1,14 +1,19 @@
 import os
+import re
 import tempfile
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib import admin
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core import mail
+from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from subscriptions.models import BkashTransaction, Plan, SubscriptionEvent, UserSubscription
 
@@ -23,6 +28,7 @@ from .social_auth import (
     fetch_github_identity,
     resolve_social_login,
 )
+from .signup_protection import build_registration_token, get_signup_captcha_cache_key
 from .token_cookies import get_refresh_cookie_name
 from .user_deletion import delete_user_account
 
@@ -75,30 +81,71 @@ class StubOAuthClient:
 
 class AccountsBaseTestCase(TestCase):
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.site_settings = get_site_settings()
         self.site_settings.require_email_verification = True
+        self.site_settings.signup_captcha_enabled = False
+        self.site_settings.signup_disposable_email_blocking_enabled = False
         self.site_settings.social_login_google_enabled = False
         self.site_settings.social_login_facebook_enabled = False
         self.site_settings.social_login_github_enabled = False
         self.site_settings.save()
+
+    def get_signup_challenge(self, *, client=None, **extra_headers):
+        response = (client or self.client).get(
+            "/api/auth/register/captcha/",
+            format="json",
+            **extra_headers,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.data
+
+    def solve_signup_captcha(self, prompt):
+        match = re.fullmatch(r"What is (\d+) ([+-]) (\d+)\?", (prompt or "").strip())
+        self.assertIsNotNone(match)
+        left, operator, right = match.groups()
+        if operator == "+":
+            return str(int(left) + int(right))
+        return str(int(left) - int(right))
+
+    def get_aged_registration_token(self, *, age_seconds):
+        issued_at = timezone.now() - timedelta(seconds=age_seconds)
+        return build_registration_token(issued_at=issued_at)
+
+    def build_registration_payload(self, *, client=None, challenge=None, **overrides):
+        challenge = challenge or self.get_signup_challenge(client=client)
+        payload = {
+            "username": "verifyme",
+            "email": "verifyme@example.com",
+            "password": "TestPass123!",
+            "password2": "TestPass123!",
+            "first_name": "",
+            "last_name": "",
+            "organization": "",
+            "registration_token": challenge["registration_token"],
+            "company_website": "",
+        }
+        if challenge.get("captcha_enabled"):
+            payload["captcha_id"] = challenge["captcha_id"]
+            payload["captcha_answer"] = self.solve_signup_captcha(
+                challenge["captcha_prompt"]
+            )
+        payload.update(overrides)
+        return payload
 
 
 @override_settings(
     DB_ENGINE="django.db.backends.sqlite3",
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
     PUBLIC_APP_URL="http://localhost:5555",
+    SIGNUP_FORM_MIN_AGE_SECONDS=0,
 )
 class RegistrationAndLoginContractTests(AccountsBaseTestCase):
     def test_registration_requires_verification_by_default(self):
         response = self.client.post(
             "/api/auth/register/",
-            {
-                "username": "verifyme",
-                "email": "verifyme@example.com",
-                "password": "TestPass123!",
-                "password2": "TestPass123!",
-            },
+            self.build_registration_payload(),
             format="json",
         )
 
@@ -114,12 +161,10 @@ class RegistrationAndLoginContractTests(AccountsBaseTestCase):
 
         response = self.client.post(
             "/api/auth/register/",
-            {
-                "username": "autologin",
-                "email": "autologin@example.com",
-                "password": "TestPass123!",
-                "password2": "TestPass123!",
-            },
+            self.build_registration_payload(
+                username="autologin",
+                email="autologin@example.com",
+            ),
             format="json",
         )
 
@@ -146,6 +191,368 @@ class RegistrationAndLoginContractTests(AccountsBaseTestCase):
         self.assertIn("access_token", response.data)
         self.assertIn("user", response.data)
         self.assertIn(get_refresh_cookie_name(), response.cookies)
+
+
+@override_settings(
+    DB_ENGINE="django.db.backends.sqlite3",
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    PUBLIC_APP_URL="http://localhost:5555",
+    SIGNUP_FORM_MIN_AGE_SECONDS=0,
+    SIGNUP_REGISTER_BURST_RATE="100/15s",
+    SIGNUP_REGISTER_SHORT_WINDOW_RATE="100/10m",
+    SIGNUP_REGISTER_SUSTAINED_RATE="100/h",
+)
+class SignupProtectionTests(AccountsBaseTestCase):
+    def test_signup_challenge_returns_registration_token_and_no_cache_when_captcha_disabled(self):
+        response = self.client.get("/api/auth/register/captcha/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["captcha_enabled"])
+        self.assertEqual(response.data["captcha_id"], "")
+        self.assertEqual(response.data["captcha_prompt"], "")
+        self.assertTrue(response.data["registration_token"])
+        self.assertEqual(response["Cache-Control"], "no-store")
+
+    def test_signup_challenge_returns_captcha_when_enabled(self):
+        self.site_settings.signup_captcha_enabled = True
+        self.site_settings.save(update_fields=["signup_captcha_enabled"])
+
+        challenge = self.get_signup_challenge()
+
+        self.assertTrue(challenge["captcha_enabled"])
+        self.assertTrue(challenge["captcha_id"])
+        self.assertTrue(challenge["captcha_prompt"])
+
+    def test_registration_bypasses_captcha_when_disabled(self):
+        response = self.client.post(
+            "/api/auth/register/",
+            self.build_registration_payload(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_registration_requires_captcha_when_enabled(self):
+        self.site_settings.signup_captcha_enabled = True
+        self.site_settings.save(update_fields=["signup_captcha_enabled"])
+        challenge = self.get_signup_challenge()
+        payload = self.build_registration_payload(
+            challenge=challenge,
+            captcha_answer="",
+        )
+
+        response = self.client.post("/api/auth/register/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("captcha_answer", response.data)
+
+    def test_registration_rejects_wrong_captcha(self):
+        self.site_settings.signup_captcha_enabled = True
+        self.site_settings.save(update_fields=["signup_captcha_enabled"])
+        challenge = self.get_signup_challenge()
+        payload = self.build_registration_payload(
+            challenge=challenge,
+            captcha_answer="999",
+        )
+
+        response = self.client.post("/api/auth/register/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("captcha_answer", response.data)
+
+    def test_registration_rejects_reused_captcha(self):
+        self.site_settings.signup_captcha_enabled = True
+        self.site_settings.save(update_fields=["signup_captcha_enabled"])
+        challenge = self.get_signup_challenge()
+
+        first_response = self.client.post(
+            "/api/auth/register/",
+            self.build_registration_payload(
+                challenge=challenge,
+                username="first-user",
+                email="first-user@example.com",
+            ),
+            format="json",
+        )
+        second_response = self.client.post(
+            "/api/auth/register/",
+            self.build_registration_payload(
+                challenge=challenge,
+                username="second-user",
+                email="second-user@example.com",
+            ),
+            format="json",
+        )
+
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("captcha_answer", second_response.data)
+
+    def test_registration_rejects_expired_captcha(self):
+        self.site_settings.signup_captcha_enabled = True
+        self.site_settings.save(update_fields=["signup_captcha_enabled"])
+        challenge = self.get_signup_challenge()
+        cache.delete(get_signup_captcha_cache_key(challenge["captcha_id"]))
+
+        response = self.client.post(
+            "/api/auth/register/",
+            self.build_registration_payload(
+                challenge=challenge,
+                username="expired-user",
+                email="expired-user@example.com",
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("captcha_answer", response.data)
+
+    def test_registration_rejects_honeypot_field(self):
+        response = self.client.post(
+            "/api/auth/register/",
+            self.build_registration_payload(company_website="https://spam.example.com"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("non_field_errors", response.data)
+
+    @override_settings(SIGNUP_FORM_MIN_AGE_SECONDS=3)
+    def test_registration_rejects_too_fast_submission(self):
+        response = self.client.post(
+            "/api/auth/register/",
+            self.build_registration_payload(
+                username="too-fast",
+                email="too-fast@example.com",
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("non_field_errors", response.data)
+
+    @override_settings(SIGNUP_FORM_MIN_AGE_SECONDS=3)
+    def test_registration_accepts_valid_aged_form_token(self):
+        response = self.client.post(
+            "/api/auth/register/",
+            self.build_registration_payload(
+                username="aged-form",
+                email="aged-form@example.com",
+                registration_token=self.get_aged_registration_token(age_seconds=5),
+            ),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_registration_blocks_disposable_domain_when_enabled(self):
+        self.site_settings.signup_disposable_email_blocking_enabled = True
+        self.site_settings.save(
+            update_fields=["signup_disposable_email_blocking_enabled"]
+        )
+
+        response = self.client.post(
+            "/api/auth/register/",
+            self.build_registration_payload(email="blocked@mailinator.com"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data)
+
+    def test_registration_allows_disposable_domain_when_disabled(self):
+        response = self.client.post(
+            "/api/auth/register/",
+            self.build_registration_payload(email="allowed@mailinator.com"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @override_settings(SIGNUP_DISPOSABLE_EMAIL_BLOCKLIST=["throwaway.example"])
+    def test_custom_disposable_blocklist_is_enforced(self):
+        self.site_settings.signup_disposable_email_blocking_enabled = True
+        self.site_settings.save(
+            update_fields=["signup_disposable_email_blocking_enabled"]
+        )
+
+        response = self.client.post(
+            "/api/auth/register/",
+            self.build_registration_payload(email="custom@throwaway.example"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data)
+
+
+@override_settings(
+    DB_ENGINE="django.db.backends.sqlite3",
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    PUBLIC_APP_URL="http://localhost:5555",
+    SIGNUP_FORM_MIN_AGE_SECONDS=0,
+)
+class RegistrationThrottleTests(AccountsBaseTestCase):
+    def post_registration(self, index, *, client=None, remote_addr="127.0.0.1", **extra_headers):
+        payload = self.build_registration_payload(
+            client=client,
+            username=f"user-{index}",
+            email=f"user-{index}@example.com",
+        )
+        return (client or self.client).post(
+            "/api/auth/register/",
+            payload,
+            format="json",
+            REMOTE_ADDR=remote_addr,
+            **extra_headers,
+        )
+
+    def test_burst_rate_returns_429_on_second_request_from_same_ip(self):
+        first = self.post_registration(1)
+        second = self.post_registration(2)
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @override_settings(
+        SIGNUP_REGISTER_BURST_RATE="100/15s",
+        SIGNUP_REGISTER_SHORT_WINDOW_RATE="3/10m",
+        SIGNUP_REGISTER_SUSTAINED_RATE="100/h",
+    )
+    def test_short_window_rate_returns_429_on_fourth_request_from_same_ip(self):
+        responses = [self.post_registration(index) for index in range(1, 5)]
+
+        self.assertTrue(
+            all(response.status_code == status.HTTP_201_CREATED for response in responses[:3])
+        )
+        self.assertEqual(responses[3].status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @override_settings(
+        SIGNUP_REGISTER_BURST_RATE="100/15s",
+        SIGNUP_REGISTER_SHORT_WINDOW_RATE="100/10m",
+        SIGNUP_REGISTER_SUSTAINED_RATE="10/h",
+    )
+    def test_sustained_rate_returns_429_on_eleventh_request_from_same_ip(self):
+        responses = [self.post_registration(index) for index in range(1, 12)]
+
+        self.assertTrue(
+            all(response.status_code == status.HTTP_201_CREATED for response in responses[:10])
+        )
+        self.assertEqual(responses[10].status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @override_settings(
+        SIGNUP_REGISTER_BURST_RATE="1/15s",
+        SIGNUP_REGISTER_SHORT_WINDOW_RATE="100/10m",
+        SIGNUP_REGISTER_SUSTAINED_RATE="100/h",
+        TRUSTED_PROXY_IPS=["10.0.0.1"],
+    )
+    def test_register_throttle_uses_forwarded_ip_for_trusted_proxy(self):
+        trusted_client = APIClient()
+
+        first = self.post_registration(
+            1,
+            client=trusted_client,
+            remote_addr="10.0.0.1",
+            HTTP_X_FORWARDED_FOR="203.0.113.10, 198.51.100.2",
+        )
+        second = self.post_registration(
+            2,
+            client=trusted_client,
+            remote_addr="10.0.0.1",
+            HTTP_X_FORWARDED_FOR="203.0.113.10, 198.51.100.2",
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @override_settings(
+        SIGNUP_REGISTER_BURST_RATE="1/15s",
+        SIGNUP_REGISTER_SHORT_WINDOW_RATE="100/10m",
+        SIGNUP_REGISTER_SUSTAINED_RATE="100/h",
+        TRUSTED_PROXY_IPS=[],
+    )
+    def test_register_throttle_ignores_forwarded_ip_for_untrusted_proxy(self):
+        first = self.post_registration(
+            1,
+            remote_addr="10.0.0.1",
+            HTTP_X_FORWARDED_FOR="203.0.113.10, 198.51.100.2",
+        )
+        second = self.post_registration(
+            2,
+            remote_addr="10.0.0.2",
+            HTTP_X_FORWARDED_FOR="203.0.113.10, 198.51.100.2",
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+
+
+@override_settings(
+    DB_ENGINE="django.db.backends.sqlite3",
+    CSRF_TRUSTED_ORIGINS=["http://testserver"],
+)
+class TokenRefreshSecurityTests(AccountsBaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            username="refresh-user",
+            email="refresh@example.com",
+            password="TestPass123!",
+            email_verified=True,
+        )
+
+    def set_refresh_cookie(self):
+        refresh = RefreshToken.for_user(self.user)
+        self.client.cookies[get_refresh_cookie_name()] = str(refresh)
+
+    def test_cookie_refresh_rejects_untrusted_origin(self):
+        self.set_refresh_cookie()
+
+        response = self.client.post("/api/auth/token/refresh/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["detail"], "Refresh request origin is not allowed.")
+
+    def test_cookie_refresh_allows_trusted_origin(self):
+        self.set_refresh_cookie()
+
+        response = self.client.post(
+            "/api/auth/token/refresh/",
+            {},
+            format="json",
+            HTTP_ORIGIN="http://testserver",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertIn(get_refresh_cookie_name(), response.cookies)
+
+
+@override_settings(DB_ENGINE="django.db.backends.sqlite3")
+class ProfileUpdateSecurityTests(AccountsBaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            username="profile-user",
+            email="profile@example.com",
+            password="TestPass123!",
+            email_verified=True,
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def test_profile_update_rejects_email_changes(self):
+        response = self.client.patch(
+            "/api/auth/user/update/",
+            {
+                "first_name": "Updated",
+                "email": "attacker@example.com",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "profile@example.com")
 
 
 @override_settings(
@@ -236,16 +643,21 @@ class AdminSettingsSocialTests(AccountsBaseTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["social_login_google_enabled"])
+        self.assertFalse(response.data["signup_captcha_enabled"])
+        self.assertFalse(response.data["signup_disposable_email_blocking_enabled"])
         self.assertTrue(response.data["social_login_google_meta"]["configured"])
         self.assertEqual(
             response.data["social_login_google_meta"]["source"],
             "environment",
         )
+        self.assertIn("rate_limit_storage_meta", response.data)
 
     def test_admin_settings_patch_updates_social_toggles(self):
         response = self.client.patch(
             "/api/admin/settings/",
             {
+                "signup_captcha_enabled": True,
+                "signup_disposable_email_blocking_enabled": True,
                 "social_login_google_enabled": True,
                 "social_login_github_enabled": True,
             },
@@ -254,8 +666,42 @@ class AdminSettingsSocialTests(AccountsBaseTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.site_settings.refresh_from_db()
+        self.assertTrue(self.site_settings.signup_captcha_enabled)
+        self.assertTrue(self.site_settings.signup_disposable_email_blocking_enabled)
         self.assertTrue(self.site_settings.social_login_google_enabled)
         self.assertTrue(self.site_settings.social_login_github_enabled)
+
+
+@override_settings(DB_ENGINE="django.db.backends.sqlite3")
+class AdminGateTests(AccountsBaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.admin_user = User.objects.create_superuser(
+            username="admin-user",
+            email="admin@example.com",
+            password="AdminPass123!",
+        )
+        self.regular_user = User.objects.create_user(
+            username="regular-user",
+            email="regular@example.com",
+            password="TestPass123!",
+            email_verified=True,
+        )
+
+    def test_superuser_gate_returns_no_content(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        response = self.client.get("/api/admin/_gate/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response["Cache-Control"], "no-store")
+
+    def test_regular_user_gate_is_forbidden(self):
+        self.client.force_authenticate(user=self.regular_user)
+
+        response = self.client.get("/api/admin/_gate/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 @override_settings(

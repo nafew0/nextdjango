@@ -17,7 +17,7 @@ def set_refresh_cookie(response, refresh_token):
         max_age=int(refresh_lifetime.total_seconds()),
         httponly=True,
         secure=getattr(settings, "AUTH_REFRESH_COOKIE_SECURE", not settings.DEBUG),
-        samesite=getattr(settings, "AUTH_REFRESH_COOKIE_SAMESITE", "Lax"),
+        samesite=getattr(settings, "AUTH_REFRESH_COOKIE_SAMESITE", "Strict"),
         domain=getattr(settings, "AUTH_REFRESH_COOKIE_DOMAIN", None) or None,
         path=getattr(settings, "AUTH_REFRESH_COOKIE_PATH", "/api/auth/"),
     )
@@ -28,5 +28,5 @@ def clear_refresh_cookie(response):
         key=get_refresh_cookie_name(),
         domain=getattr(settings, "AUTH_REFRESH_COOKIE_DOMAIN", None) or None,
         path=getattr(settings, "AUTH_REFRESH_COOKIE_PATH", "/api/auth/"),
-        samesite=getattr(settings, "AUTH_REFRESH_COOKIE_SAMESITE", "Lax"),
+        samesite=getattr(settings, "AUTH_REFRESH_COOKIE_SAMESITE", "Strict"),
     )

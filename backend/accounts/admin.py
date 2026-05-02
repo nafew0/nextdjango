@@ -121,6 +121,8 @@ class SiteSettingsAdmin(admin.ModelAdmin):
     list_display = [
         "require_email_verification",
         "logged_in_users_only_default",
+        "signup_captcha_enabled",
+        "signup_disposable_email_blocking_enabled",
         "social_login_google_enabled",
         "social_login_facebook_enabled",
         "social_login_github_enabled",
@@ -136,6 +138,8 @@ class SiteSettingsAdmin(admin.ModelAdmin):
                 "fields": (
                     "require_email_verification",
                     "logged_in_users_only_default",
+                    "signup_captcha_enabled",
+                    "signup_disposable_email_blocking_enabled",
                 )
             },
         ),

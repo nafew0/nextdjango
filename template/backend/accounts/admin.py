@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 
-from {{PROJECT_NAME}}.audit import log_audit_event
+from reactdjango.audit import log_audit_event
 
 from .models import EmailVerificationToken, SiteSettings, UserSocialAccount
 from .user_deletion import delete_user_account
@@ -121,6 +121,8 @@ class SiteSettingsAdmin(admin.ModelAdmin):
     list_display = [
         "require_email_verification",
         "logged_in_users_only_default",
+        "signup_captcha_enabled",
+        "signup_disposable_email_blocking_enabled",
         "social_login_google_enabled",
         "social_login_facebook_enabled",
         "social_login_github_enabled",
@@ -136,6 +138,8 @@ class SiteSettingsAdmin(admin.ModelAdmin):
                 "fields": (
                     "require_email_verification",
                     "logged_in_users_only_default",
+                    "signup_captcha_enabled",
+                    "signup_disposable_email_blocking_enabled",
                 )
             },
         ),

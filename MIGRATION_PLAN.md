@@ -1,5 +1,7 @@
 # Frontend Migration Plan: Vite + JSX → Next.js + TSX
 
+> **Status (2026-05-01): COMPLETE.** All phases 0–6 finished. `frontend/` is a fully working Next.js 15 + TypeScript (strict mode, zero `tsc` errors) project. `template/frontend/` has been synced and is the canonical template used by `start.sh`.
+
 This plan converts the existing Vite/React/JSX frontend in [frontend/](frontend/) into a TypeScript Next.js (App Router) project, while keeping the Django backend unchanged. The goal is the smallest set of mechanical steps that gets you from "what works today" to "running on Next.js in TypeScript".
 
 The current frontend is a fairly standard SPA: React 19, react-router-dom v6, Tailwind, Radix/shadcn-style components in [frontend/src/components/ui/](frontend/src/components/ui/), `@tanstack/react-query`, `axios` with cookie-based refresh, and lazy-loaded pages in [frontend/src/pages/](frontend/src/pages/). Nothing about it is exotic — that means the migration should be a few focused phases, not a rewrite.
@@ -39,16 +41,14 @@ The current frontend is a fairly standard SPA: React 19, react-router-dom v6, Ta
 
 ---
 
-## Phase 0 — Prep (30 min)
+## Phase 0 — Prep ✓ (30 min)
 
-1. Create a new branch: `git checkout -b nextjs-migration` (or copy `frontend/` to `frontend-vite-backup/` if not on git).
-2. Confirm the current frontend builds and runs (`./start_frontend.sh`).
-3. Decide on a folder layout. Recommended: rename `frontend/` to `frontend-vite/` and create a fresh `frontend/` for the Next.js app. Keeps both runnable until cutover.
-4. Make sure Node ≥ 18.17 (Next 14+ requirement).
+1. Confirm the current frontend builds and runs (`./start_frontend.sh`).
+2. Decide on a folder layout. Recommended: rename `frontend/` to `frontend-vite/` and create a fresh `frontend/` for the Next.js app. Keeps both runnable until cutover.
 
 ---
 
-## Phase 1 — Bootstrap the Next.js project (1 hour)
+## Phase 1 — Bootstrap the Next.js project ✓ (1 hour)
 
 1. From the repo root: `npx create-next-app@latest frontend --typescript --tailwind --app --src-dir --import-alias "@/*"`. Say **no** to ESLint if you want; you can copy the existing one later. Say **no** to Turbopack unless you want to debug it separately.
 2. `cd frontend && npm run dev` — confirm the default Next page loads on `http://localhost:3000`.
@@ -73,7 +73,7 @@ The current frontend is a fairly standard SPA: React 19, react-router-dom v6, Ta
 
 ---
 
-## Phase 2 — Port shared code (still as `.jsx`/`.js`) (1–2 hours)
+## Phase 2 — Port shared code ✓ (1–2 hours)
 
 Goal: get every non-routing file into the new `src/` tree, keep extensions as-is.
 
@@ -93,7 +93,7 @@ Goal: get every non-routing file into the new `src/` tree, keep extensions as-is
 
 ---
 
-## Phase 3 — Replace routing with the App Router (2–4 hours)
+## Phase 3 — Replace routing with the App Router ✓ (2–4 hours)
 
 This is the biggest phase. Map each route in [src/App.jsx:54-103](frontend/src/App.jsx#L54-L103) to a folder under `src/app/`.
 
@@ -212,7 +212,7 @@ Once every route renders, delete `src/App.jsx`, `src/main.jsx`, and the `src/pag
 
 ---
 
-## Phase 4 — Wire up the Django backend proxy (15 min)
+## Phase 4 — Wire up the Django backend proxy ✓ (15 min)
 
 Replace the Vite proxy from [vite.config.js:14-21](frontend/vite.config.js#L14-L21) with a Next.js rewrite. Create/edit `next.config.js`:
 
@@ -235,7 +235,7 @@ For production, either keep the rewrite (simple) or point `NEXT_PUBLIC_API_URL` 
 
 ---
 
-## Phase 5 — Convert `.jsx` → `.tsx` (2–4 hours, incremental)
+## Phase 5 — Convert `.jsx` → `.tsx` ✓ (2–4 hours, incremental)
 
 Now everything runs. Add types in this order; commit after each group.
 
@@ -265,7 +265,7 @@ Once everything is `.tsx`, flip `allowJs` to `false` to lock it in.
 
 ---
 
-## Phase 6 — Cleanup (30 min)
+## Phase 6 — Cleanup ✓ (30 min)
 
 1. Delete `frontend-vite/`.
 2. Update [start.sh](start.sh) and [start_frontend.sh](start_frontend.sh) for the new project structure.
