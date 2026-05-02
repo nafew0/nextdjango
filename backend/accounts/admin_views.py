@@ -582,10 +582,13 @@ class AdminSettingsView(AdminAPIView):
         return Response(SiteSettingsAdminSerializer(get_site_settings()).data)
 
     def patch(self, request):
-        serializer = SiteSettingsUpdateSerializer(data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-
         settings_obj = get_site_settings()
+        serializer = SiteSettingsUpdateSerializer(
+            settings_obj,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
         for field, value in serializer.validated_data.items():
             setattr(settings_obj, field, value)
         settings_obj.save()

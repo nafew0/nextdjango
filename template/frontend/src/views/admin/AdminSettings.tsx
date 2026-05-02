@@ -24,6 +24,9 @@ interface FormState {
   logged_in_users_only_default: boolean
   signup_captcha_enabled: boolean
   signup_disposable_email_blocking_enabled: boolean
+  signup_burst_limit: number
+  signup_short_window_limit: number
+  signup_sustained_limit: number
   social_login_google_enabled: boolean
   social_login_facebook_enabled: boolean
   social_login_github_enabled: boolean
@@ -32,14 +35,26 @@ interface FormState {
   ai_model_anthropic: string
 }
 
+function readNumberSetting(
+  settings: Record<string, unknown> | null | undefined,
+  key: string,
+  fallback: number
+) {
+  const value = Number(settings?.[key] ?? fallback)
+  return Number.isFinite(value) && value > 0 ? value : fallback
+}
+
 function buildInitialState(settings: Record<string, unknown> | null | undefined): FormState {
   return {
-    require_email_verification: Boolean(settings?.require_email_verification ?? true),
+    require_email_verification: Boolean(settings?.require_email_verification ?? false),
     logged_in_users_only_default: Boolean(settings?.logged_in_users_only_default ?? false),
     signup_captcha_enabled: Boolean(settings?.signup_captcha_enabled ?? false),
     signup_disposable_email_blocking_enabled: Boolean(
       settings?.signup_disposable_email_blocking_enabled ?? false
     ),
+    signup_burst_limit: readNumberSetting(settings, 'signup_burst_limit', 1),
+    signup_short_window_limit: readNumberSetting(settings, 'signup_short_window_limit', 3),
+    signup_sustained_limit: readNumberSetting(settings, 'signup_sustained_limit', 10),
     social_login_google_enabled: Boolean(settings?.social_login_google_enabled ?? false),
     social_login_facebook_enabled: Boolean(settings?.social_login_facebook_enabled ?? false),
     social_login_github_enabled: Boolean(settings?.social_login_github_enabled ?? false),
@@ -72,6 +87,14 @@ export default function AdminSettings() {
       ...current,
       [key]: value,
     }))
+  }
+
+  const handleIntegerChange = (key: keyof FormState, rawValue: string) => {
+    const parsed = Number.parseInt(rawValue, 10)
+    if (Number.isNaN(parsed)) {
+      return
+    }
+    handleChange(key, Math.max(1, parsed))
   }
 
   const handleSave = async () => {
@@ -182,6 +205,60 @@ export default function AdminSettings() {
               checked={formState.signup_disposable_email_blocking_enabled}
               onCheckedChange={(value) => handleChange('signup_disposable_email_blocking_enabled', value)}
             />
+          </div>
+
+          <div className="rounded-[1.2rem] border border-[rgb(var(--theme-border-rgb)/0.76)] bg-white/80 p-4">
+            <div className="space-y-1">
+              <p className="font-medium text-foreground">Signup rate limits</p>
+              <p className="text-sm text-muted-foreground">
+                The time windows stay fixed. Change only the number of registrations allowed per IP in each window.
+              </p>
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  15 seconds
+                </p>
+                <Input
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  value={formState.signup_burst_limit}
+                  onChange={(event) => handleIntegerChange('signup_burst_limit', event.target.value)}
+                />
+                <p className="text-sm text-muted-foreground">Requests allowed per IP.</p>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  10 minutes
+                </p>
+                <Input
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  value={formState.signup_short_window_limit}
+                  onChange={(event) =>
+                    handleIntegerChange('signup_short_window_limit', event.target.value)
+                  }
+                />
+                <p className="text-sm text-muted-foreground">Requests allowed per IP.</p>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  1 hour
+                </p>
+                <Input
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  value={formState.signup_sustained_limit}
+                  onChange={(event) =>
+                    handleIntegerChange('signup_sustained_limit', event.target.value)
+                  }
+                />
+                <p className="text-sm text-muted-foreground">Requests allowed per IP.</p>
+              </div>
+            </div>
           </div>
 
           <div className="rounded-[1.2rem] border border-[rgb(var(--theme-border-rgb)/0.76)] bg-white/80 p-4">

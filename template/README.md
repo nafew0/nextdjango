@@ -345,6 +345,8 @@ Response:
 
 Before posting registration, fetch `/api/auth/register/captcha/`. It always returns a signed `registration_token`, and when signup CAPTCHA is enabled it also returns `captcha_id` and a simple arithmetic prompt.
 
+New installs start with email verification turned off, so successful registration returns an access token immediately. An admin can later enable email verification and tune the fixed-window signup limits from the admin settings screen without editing environment variables.
+
 **Login:**
 ```json
 POST /api/auth/login/

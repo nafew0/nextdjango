@@ -8,7 +8,12 @@ from subscriptions.serializers import PlanSummarySerializer
 from subscriptions.services import LicenseService
 
 from .ai_secrets import get_ai_api_key_meta
-from .models import SiteSettings
+from .models import (
+    DEFAULT_SIGNUP_BURST_LIMIT,
+    DEFAULT_SIGNUP_SHORT_WINDOW_LIMIT,
+    DEFAULT_SIGNUP_SUSTAINED_LIMIT,
+    SiteSettings,
+)
 from .social_auth import get_social_provider_status
 
 User = get_user_model()
@@ -126,6 +131,9 @@ class SiteSettingsAdminSerializer(serializers.ModelSerializer):
             "logged_in_users_only_default",
             "signup_captcha_enabled",
             "signup_disposable_email_blocking_enabled",
+            "signup_burst_limit",
+            "signup_short_window_limit",
+            "signup_sustained_limit",
             "social_login_google_enabled",
             "social_login_facebook_enabled",
             "social_login_github_enabled",
@@ -195,6 +203,9 @@ class SiteSettingsUpdateSerializer(serializers.Serializer):
     logged_in_users_only_default = serializers.BooleanField(required=False)
     signup_captcha_enabled = serializers.BooleanField(required=False)
     signup_disposable_email_blocking_enabled = serializers.BooleanField(required=False)
+    signup_burst_limit = serializers.IntegerField(required=False, min_value=1)
+    signup_short_window_limit = serializers.IntegerField(required=False, min_value=1)
+    signup_sustained_limit = serializers.IntegerField(required=False, min_value=1)
     social_login_google_enabled = serializers.BooleanField(required=False)
     social_login_facebook_enabled = serializers.BooleanField(required=False)
     social_login_github_enabled = serializers.BooleanField(required=False)
@@ -216,6 +227,47 @@ class SiteSettingsUpdateSerializer(serializers.Serializer):
                 {
                     field_name: "Configure AI API keys with environment variables."
                     for field_name in rejected_fields
+                }
+            )
+
+        instance = getattr(self, "instance", None)
+        burst_limit = attrs.get(
+            "signup_burst_limit",
+            getattr(instance, "signup_burst_limit", DEFAULT_SIGNUP_BURST_LIMIT),
+        )
+        short_window_limit = attrs.get(
+            "signup_short_window_limit",
+            getattr(
+                instance,
+                "signup_short_window_limit",
+                DEFAULT_SIGNUP_SHORT_WINDOW_LIMIT,
+            ),
+        )
+        sustained_limit = attrs.get(
+            "signup_sustained_limit",
+            getattr(
+                instance,
+                "signup_sustained_limit",
+                DEFAULT_SIGNUP_SUSTAINED_LIMIT,
+            ),
+        )
+
+        if burst_limit > short_window_limit:
+            raise serializers.ValidationError(
+                {
+                    "signup_short_window_limit": (
+                        "The 10-minute signup limit must be greater than or equal "
+                        "to the 15-second burst limit."
+                    )
+                }
+            )
+        if short_window_limit > sustained_limit:
+            raise serializers.ValidationError(
+                {
+                    "signup_sustained_limit": (
+                        "The hourly signup limit must be greater than or equal to "
+                        "the 10-minute signup limit."
+                    )
                 }
             )
         return attrs

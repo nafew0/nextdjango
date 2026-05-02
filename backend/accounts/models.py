@@ -15,6 +15,11 @@ def generate_email_verification_token():
     return secrets.token_hex(32)
 
 
+DEFAULT_SIGNUP_BURST_LIMIT = 1
+DEFAULT_SIGNUP_SHORT_WINDOW_LIMIT = 3
+DEFAULT_SIGNUP_SUSTAINED_LIMIT = 10
+
+
 class User(AbstractUser):
     """
     Custom User model extending Django's AbstractUser.
@@ -59,10 +64,17 @@ class SiteSettings(models.Model):
         ANTHROPIC = "anthropic", "Anthropic"
 
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
-    require_email_verification = models.BooleanField(default=True)
+    require_email_verification = models.BooleanField(default=False)
     logged_in_users_only_default = models.BooleanField(default=False)
     signup_captcha_enabled = models.BooleanField(default=False)
     signup_disposable_email_blocking_enabled = models.BooleanField(default=False)
+    signup_burst_limit = models.PositiveIntegerField(default=DEFAULT_SIGNUP_BURST_LIMIT)
+    signup_short_window_limit = models.PositiveIntegerField(
+        default=DEFAULT_SIGNUP_SHORT_WINDOW_LIMIT
+    )
+    signup_sustained_limit = models.PositiveIntegerField(
+        default=DEFAULT_SIGNUP_SUSTAINED_LIMIT
+    )
     social_login_google_enabled = models.BooleanField(default=False)
     social_login_facebook_enabled = models.BooleanField(default=False)
     social_login_github_enabled = models.BooleanField(default=False)

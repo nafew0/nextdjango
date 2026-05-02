@@ -84,10 +84,10 @@ npm run dev
 
 ## First Things to Test
 
-1. **Register** → check email verification (console output in dev)
+1. **Register** → confirm auto-login works by default
 2. **Login** → JWT issued, cookie set
 3. **Pricing page** (`/pricing`) → plans displayed
-4. **Admin panel** (`/admin`) → log in as staff/superuser
+4. **Admin panel** (`/admin`) → log in as staff/superuser, then review Authentication defaults for email verification and signup rate limits
 5. **Profile** → update avatar, org, change password
 
 ## Production Note

@@ -84,9 +84,12 @@ class AccountsBaseTestCase(TestCase):
         cache.clear()
         self.client = APIClient()
         self.site_settings = get_site_settings()
-        self.site_settings.require_email_verification = True
+        self.site_settings.require_email_verification = False
         self.site_settings.signup_captcha_enabled = False
         self.site_settings.signup_disposable_email_blocking_enabled = False
+        self.site_settings.signup_burst_limit = 1
+        self.site_settings.signup_short_window_limit = 3
+        self.site_settings.signup_sustained_limit = 10
         self.site_settings.social_login_google_enabled = False
         self.site_settings.social_login_facebook_enabled = False
         self.site_settings.social_login_github_enabled = False
@@ -142,7 +145,7 @@ class AccountsBaseTestCase(TestCase):
     SIGNUP_FORM_MIN_AGE_SECONDS=0,
 )
 class RegistrationAndLoginContractTests(AccountsBaseTestCase):
-    def test_registration_requires_verification_by_default(self):
+    def test_registration_returns_access_token_by_default(self):
         response = self.client.post(
             "/api/auth/register/",
             self.build_registration_payload(),
@@ -150,13 +153,14 @@ class RegistrationAndLoginContractTests(AccountsBaseTestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(response.data["email_verification_required"])
+        self.assertTrue(response.data["user"]["email_verified"])
         self.assertIn("user", response.data)
-        self.assertNotIn("access_token", response.data)
-        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("access_token", response.data)
+        self.assertIn(get_refresh_cookie_name(), response.cookies)
+        self.assertEqual(len(mail.outbox), 0)
 
-    def test_registration_without_email_verification_returns_access_token_and_cookie(self):
-        self.site_settings.require_email_verification = False
+    def test_registration_requires_verification_when_enabled(self):
+        self.site_settings.require_email_verification = True
         self.site_settings.save(update_fields=["require_email_verification"])
 
         response = self.client.post(
@@ -169,9 +173,9 @@ class RegistrationAndLoginContractTests(AccountsBaseTestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn("access_token", response.data)
-        self.assertEqual(response.data["message"], "User registered successfully.")
-        self.assertIn(get_refresh_cookie_name(), response.cookies)
+        self.assertTrue(response.data["email_verification_required"])
+        self.assertNotIn("access_token", response.data)
+        self.assertEqual(len(mail.outbox), 1)
 
     def test_login_success_returns_access_token_and_refresh_cookie(self):
         user = User.objects.create_user(
@@ -198,11 +202,21 @@ class RegistrationAndLoginContractTests(AccountsBaseTestCase):
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
     PUBLIC_APP_URL="http://localhost:5555",
     SIGNUP_FORM_MIN_AGE_SECONDS=0,
-    SIGNUP_REGISTER_BURST_RATE="100/15s",
-    SIGNUP_REGISTER_SHORT_WINDOW_RATE="100/10m",
-    SIGNUP_REGISTER_SUSTAINED_RATE="100/h",
 )
 class SignupProtectionTests(AccountsBaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.site_settings.signup_burst_limit = 100
+        self.site_settings.signup_short_window_limit = 100
+        self.site_settings.signup_sustained_limit = 100
+        self.site_settings.save(
+            update_fields=[
+                "signup_burst_limit",
+                "signup_short_window_limit",
+                "signup_sustained_limit",
+            ]
+        )
+
     def test_signup_challenge_returns_registration_token_and_no_cache_when_captcha_disabled(self):
         response = self.client.get("/api/auth/register/captcha/")
 
@@ -393,6 +407,18 @@ class SignupProtectionTests(AccountsBaseTestCase):
     SIGNUP_FORM_MIN_AGE_SECONDS=0,
 )
 class RegistrationThrottleTests(AccountsBaseTestCase):
+    def set_signup_limits(self, *, burst=1, short_window=3, sustained=10):
+        self.site_settings.signup_burst_limit = burst
+        self.site_settings.signup_short_window_limit = short_window
+        self.site_settings.signup_sustained_limit = sustained
+        self.site_settings.save(
+            update_fields=[
+                "signup_burst_limit",
+                "signup_short_window_limit",
+                "signup_sustained_limit",
+            ]
+        )
+
     def post_registration(self, index, *, client=None, remote_addr="127.0.0.1", **extra_headers):
         payload = self.build_registration_payload(
             client=client,
@@ -414,12 +440,8 @@ class RegistrationThrottleTests(AccountsBaseTestCase):
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)
         self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-    @override_settings(
-        SIGNUP_REGISTER_BURST_RATE="100/15s",
-        SIGNUP_REGISTER_SHORT_WINDOW_RATE="3/10m",
-        SIGNUP_REGISTER_SUSTAINED_RATE="100/h",
-    )
     def test_short_window_rate_returns_429_on_fourth_request_from_same_ip(self):
+        self.set_signup_limits(burst=100, short_window=3, sustained=100)
         responses = [self.post_registration(index) for index in range(1, 5)]
 
         self.assertTrue(
@@ -427,12 +449,8 @@ class RegistrationThrottleTests(AccountsBaseTestCase):
         )
         self.assertEqual(responses[3].status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-    @override_settings(
-        SIGNUP_REGISTER_BURST_RATE="100/15s",
-        SIGNUP_REGISTER_SHORT_WINDOW_RATE="100/10m",
-        SIGNUP_REGISTER_SUSTAINED_RATE="10/h",
-    )
     def test_sustained_rate_returns_429_on_eleventh_request_from_same_ip(self):
+        self.set_signup_limits(burst=100, short_window=100, sustained=10)
         responses = [self.post_registration(index) for index in range(1, 12)]
 
         self.assertTrue(
@@ -441,12 +459,10 @@ class RegistrationThrottleTests(AccountsBaseTestCase):
         self.assertEqual(responses[10].status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @override_settings(
-        SIGNUP_REGISTER_BURST_RATE="1/15s",
-        SIGNUP_REGISTER_SHORT_WINDOW_RATE="100/10m",
-        SIGNUP_REGISTER_SUSTAINED_RATE="100/h",
         TRUSTED_PROXY_IPS=["10.0.0.1"],
     )
     def test_register_throttle_uses_forwarded_ip_for_trusted_proxy(self):
+        self.set_signup_limits(burst=1, short_window=100, sustained=100)
         trusted_client = APIClient()
 
         first = self.post_registration(
@@ -466,12 +482,10 @@ class RegistrationThrottleTests(AccountsBaseTestCase):
         self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @override_settings(
-        SIGNUP_REGISTER_BURST_RATE="1/15s",
-        SIGNUP_REGISTER_SHORT_WINDOW_RATE="100/10m",
-        SIGNUP_REGISTER_SUSTAINED_RATE="100/h",
         TRUSTED_PROXY_IPS=[],
     )
     def test_register_throttle_ignores_forwarded_ip_for_untrusted_proxy(self):
+        self.set_signup_limits(burst=1, short_window=100, sustained=100)
         first = self.post_registration(
             1,
             remote_addr="10.0.0.1",
@@ -643,8 +657,12 @@ class AdminSettingsSocialTests(AccountsBaseTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data["social_login_google_enabled"])
+        self.assertFalse(response.data["require_email_verification"])
         self.assertFalse(response.data["signup_captcha_enabled"])
         self.assertFalse(response.data["signup_disposable_email_blocking_enabled"])
+        self.assertEqual(response.data["signup_burst_limit"], 1)
+        self.assertEqual(response.data["signup_short_window_limit"], 3)
+        self.assertEqual(response.data["signup_sustained_limit"], 10)
         self.assertTrue(response.data["social_login_google_meta"]["configured"])
         self.assertEqual(
             response.data["social_login_google_meta"]["source"],
@@ -656,8 +674,12 @@ class AdminSettingsSocialTests(AccountsBaseTestCase):
         response = self.client.patch(
             "/api/admin/settings/",
             {
+                "require_email_verification": True,
                 "signup_captcha_enabled": True,
                 "signup_disposable_email_blocking_enabled": True,
+                "signup_burst_limit": 5,
+                "signup_short_window_limit": 12,
+                "signup_sustained_limit": 30,
                 "social_login_google_enabled": True,
                 "social_login_github_enabled": True,
             },
@@ -666,8 +688,12 @@ class AdminSettingsSocialTests(AccountsBaseTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.site_settings.refresh_from_db()
+        self.assertTrue(self.site_settings.require_email_verification)
         self.assertTrue(self.site_settings.signup_captcha_enabled)
         self.assertTrue(self.site_settings.signup_disposable_email_blocking_enabled)
+        self.assertEqual(self.site_settings.signup_burst_limit, 5)
+        self.assertEqual(self.site_settings.signup_short_window_limit, 12)
+        self.assertEqual(self.site_settings.signup_sustained_limit, 30)
         self.assertTrue(self.site_settings.social_login_google_enabled)
         self.assertTrue(self.site_settings.social_login_github_enabled)
 
