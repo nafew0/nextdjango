@@ -9,3 +9,7 @@ Optional auth-page images:
 - registerpage.webp
 
 The app is already wired to these filenames.
+
+These files act as bundled fallbacks. An admin can later override the logo, favicon,
+login banner, and registration banner from the admin settings screen without
+rebuilding the frontend.

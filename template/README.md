@@ -112,7 +112,9 @@ project-name/
 │   ├── .env.example           # Example environment file
 │   └── .gitignore             # Git ignore rules
 │
-├── setup.sh                   # Automated setup script
+├── setup.sh                   # Automated setup script (auto-detects platform)
+├── setup_linux.sh             # Linux / Ubuntu setup wrapper
+├── setup_windows.sh           # Windows Git Bash setup wrapper
 ├── setup_database.sh          # Database setup script
 ├── start_backend.sh           # Start Django server
 ├── start_frontend.sh          # Start Next.js dev server
@@ -124,7 +126,7 @@ project-name/
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed on your Mac:
+Before you begin, ensure you have the following installed on your machine:
 
 1. **Python 3.8+**
    ```bash
@@ -164,6 +166,17 @@ The easiest way to set up a new project is using the automated setup script:
 cd template
 chmod +x setup.sh
 ./setup.sh
+```
+
+Platform-specific wrappers are also available:
+
+```bash
+# Linux / Ubuntu
+chmod +x setup_linux.sh
+./setup_linux.sh
+
+# Windows (Git Bash)
+./setup_windows.sh
 ```
 
 The script will:
@@ -485,7 +498,9 @@ After setting up the project, you may want to customize the following:
 **Files to update:**
 - `frontend/src/components/Navbar.tsx` - Update project name and navigation labels
 - `frontend/src/app/layout.tsx` - Update metadata title and description
-- `frontend/public/branding/` - Replace the bundled branding images/logo
+- `frontend/public/branding/` - Replace the bundled fallback branding images/logo
+
+You can also upload a runtime logo, favicon, login banner, and registration banner from the admin settings screen after setup. Those uploads override the bundled files without rebuilding the frontend. Uploaded assets are validated against pixel caps before saving.
 
 ### 2. Django Secret Key
 

@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 
-from reactdjango.audit import log_audit_event
+from {{PROJECT_NAME}}.audit import log_audit_event
 
 from .models import EmailVerificationToken, SiteSettings, UserSocialAccount
 from .user_deletion import delete_user_account

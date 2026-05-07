@@ -6,6 +6,8 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
 
+from .branding import branding_asset_upload_to
+
 
 def get_default_verification_expiry():
     return timezone.now() + timedelta(hours=24)
@@ -74,6 +76,26 @@ class SiteSettings(models.Model):
     )
     signup_sustained_limit = models.PositiveIntegerField(
         default=DEFAULT_SIGNUP_SUSTAINED_LIMIT
+    )
+    branding_logo = models.ImageField(
+        upload_to=branding_asset_upload_to,
+        blank=True,
+        null=True,
+    )
+    branding_favicon = models.ImageField(
+        upload_to=branding_asset_upload_to,
+        blank=True,
+        null=True,
+    )
+    branding_login_banner = models.ImageField(
+        upload_to=branding_asset_upload_to,
+        blank=True,
+        null=True,
+    )
+    branding_register_banner = models.ImageField(
+        upload_to=branding_asset_upload_to,
+        blank=True,
+        null=True,
     )
     social_login_google_enabled = models.BooleanField(default=False)
     social_login_facebook_enabled = models.BooleanField(default=False)

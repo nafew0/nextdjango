@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { AlertCircle, ArrowRight, LoaderCircle, MailCheck } from 'lucide-react'
 
 import BrandLogo from '@/components/branding/BrandLogo'
+import { useBranding } from '@/contexts/BrandingContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '@/hooks/useToast'
 import { Button } from '@/components/ui/button'
@@ -20,6 +21,7 @@ const Login = () => {
   const [resendCooldown, setResendCooldown] = useState(0)
 
   const { login, resendVerificationEmail, isAuthenticated, loading: authLoading } = useAuth()
+  const { loginBannerUrl } = useBranding()
   const { toast } = useToast()
   const router = useRouter()
   const searchParams = useSearchParams() ?? new URLSearchParams()
@@ -115,7 +117,7 @@ const Login = () => {
           <div className="grid lg:grid-cols-[1.08fr_0.92fr]">
             <section className="relative hidden min-h-[38rem] overflow-hidden border-b border-[rgb(var(--theme-border-rgb)/0.88)] bg-[rgb(var(--theme-muted-rgb)/0.82)] lg:flex lg:border-b-0 lg:border-r">
               <img
-                src="/branding/loginpage.webp"
+                src={loginBannerUrl}
                 alt="Login visual"
                 className="absolute inset-0 h-full w-full object-cover"
                 onError={(event) => {

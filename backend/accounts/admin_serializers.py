@@ -8,6 +8,12 @@ from subscriptions.serializers import PlanSummarySerializer
 from subscriptions.services import LicenseService
 
 from .ai_secrets import get_ai_api_key_meta
+from .branding import (
+    get_branding_asset_limits,
+    has_custom_branding_asset,
+    resolve_branding_asset_url,
+    sanitize_branding_upload,
+)
 from .models import (
     DEFAULT_SIGNUP_BURST_LIMIT,
     DEFAULT_SIGNUP_SHORT_WINDOW_LIMIT,
@@ -123,6 +129,15 @@ class SiteSettingsAdminSerializer(serializers.ModelSerializer):
     social_login_facebook_meta = serializers.SerializerMethodField()
     social_login_github_meta = serializers.SerializerMethodField()
     rate_limit_storage_meta = serializers.SerializerMethodField()
+    branding_logo_url = serializers.SerializerMethodField()
+    branding_favicon_url = serializers.SerializerMethodField()
+    branding_login_banner_url = serializers.SerializerMethodField()
+    branding_register_banner_url = serializers.SerializerMethodField()
+    branding_logo_customized = serializers.SerializerMethodField()
+    branding_favicon_customized = serializers.SerializerMethodField()
+    branding_login_banner_customized = serializers.SerializerMethodField()
+    branding_register_banner_customized = serializers.SerializerMethodField()
+    branding_asset_limits = serializers.SerializerMethodField()
 
     class Meta:
         model = SiteSettings
@@ -134,6 +149,15 @@ class SiteSettingsAdminSerializer(serializers.ModelSerializer):
             "signup_burst_limit",
             "signup_short_window_limit",
             "signup_sustained_limit",
+            "branding_logo_url",
+            "branding_favicon_url",
+            "branding_login_banner_url",
+            "branding_register_banner_url",
+            "branding_logo_customized",
+            "branding_favicon_customized",
+            "branding_login_banner_customized",
+            "branding_register_banner_customized",
+            "branding_asset_limits",
             "social_login_google_enabled",
             "social_login_facebook_enabled",
             "social_login_github_enabled",
@@ -178,6 +202,33 @@ class SiteSettingsAdminSerializer(serializers.ModelSerializer):
         status = get_social_provider_status("github", obj)
         return {"configured": status.configured, "source": status.source}
 
+    def get_branding_logo_url(self, obj):
+        return resolve_branding_asset_url(obj, "branding_logo")
+
+    def get_branding_favicon_url(self, obj):
+        return resolve_branding_asset_url(obj, "branding_favicon")
+
+    def get_branding_login_banner_url(self, obj):
+        return resolve_branding_asset_url(obj, "branding_login_banner")
+
+    def get_branding_register_banner_url(self, obj):
+        return resolve_branding_asset_url(obj, "branding_register_banner")
+
+    def get_branding_logo_customized(self, obj):
+        return has_custom_branding_asset(obj, "branding_logo")
+
+    def get_branding_favicon_customized(self, obj):
+        return has_custom_branding_asset(obj, "branding_favicon")
+
+    def get_branding_login_banner_customized(self, obj):
+        return has_custom_branding_asset(obj, "branding_login_banner")
+
+    def get_branding_register_banner_customized(self, obj):
+        return has_custom_branding_asset(obj, "branding_register_banner")
+
+    def get_branding_asset_limits(self, obj):
+        return get_branding_asset_limits()
+
     def get_rate_limit_storage_meta(self, obj):
         cache_backend = settings.CACHES["default"]["BACKEND"]
         use_redis = bool(getattr(settings, "USE_REDIS", False))
@@ -206,6 +257,14 @@ class SiteSettingsUpdateSerializer(serializers.Serializer):
     signup_burst_limit = serializers.IntegerField(required=False, min_value=1)
     signup_short_window_limit = serializers.IntegerField(required=False, min_value=1)
     signup_sustained_limit = serializers.IntegerField(required=False, min_value=1)
+    branding_logo = serializers.ImageField(required=False, allow_empty_file=False)
+    branding_favicon = serializers.ImageField(required=False, allow_empty_file=False)
+    branding_login_banner = serializers.ImageField(required=False, allow_empty_file=False)
+    branding_register_banner = serializers.ImageField(required=False, allow_empty_file=False)
+    clear_branding_logo = serializers.BooleanField(required=False)
+    clear_branding_favicon = serializers.BooleanField(required=False)
+    clear_branding_login_banner = serializers.BooleanField(required=False)
+    clear_branding_register_banner = serializers.BooleanField(required=False)
     social_login_google_enabled = serializers.BooleanField(required=False)
     social_login_facebook_enabled = serializers.BooleanField(required=False)
     social_login_github_enabled = serializers.BooleanField(required=False)
@@ -215,6 +274,30 @@ class SiteSettingsUpdateSerializer(serializers.Serializer):
     )
     ai_model_openai = serializers.CharField(required=False, allow_blank=True, max_length=100)
     ai_model_anthropic = serializers.CharField(required=False, allow_blank=True, max_length=100)
+
+    def validate_branding_logo(self, value):
+        try:
+            return sanitize_branding_upload(value, "branding_logo")
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+
+    def validate_branding_favicon(self, value):
+        try:
+            return sanitize_branding_upload(value, "branding_favicon")
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+
+    def validate_branding_login_banner(self, value):
+        try:
+            return sanitize_branding_upload(value, "branding_login_banner")
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+
+    def validate_branding_register_banner(self, value):
+        try:
+            return sanitize_branding_upload(value, "branding_register_banner")
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
     def validate(self, attrs):
         rejected_fields = [
@@ -229,6 +312,21 @@ class SiteSettingsUpdateSerializer(serializers.Serializer):
                     for field_name in rejected_fields
                 }
             )
+
+        for field_name in (
+            "branding_logo",
+            "branding_favicon",
+            "branding_login_banner",
+            "branding_register_banner",
+        ):
+            if field_name in attrs and attrs.get(f"clear_{field_name}"):
+                raise serializers.ValidationError(
+                    {
+                        f"clear_{field_name}": (
+                            "Choose either a new upload or remove the current image."
+                        )
+                    }
+                )
 
         instance = getattr(self, "instance", None)
         burst_limit = attrs.get(

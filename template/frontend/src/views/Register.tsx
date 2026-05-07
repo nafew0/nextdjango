@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { AlertCircle, ArrowRight, LoaderCircle, MailCheck, RotateCw } from 'lucide-react'
 
 import BrandLogo from '@/components/branding/BrandLogo'
+import { useBranding } from '@/contexts/BrandingContext'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import SocialLoginButtons from '@/components/auth/SocialLoginButtons'
@@ -43,6 +44,7 @@ const Register = () => {
   const [challengeError, setChallengeError] = useState('')
 
   const { register, resendVerificationEmail, isAuthenticated, loading: authLoading } = useAuth()
+  const { registerBannerUrl } = useBranding()
   const { toast } = useToast()
   const router = useRouter()
   const searchParams = useSearchParams() ?? new URLSearchParams()
@@ -193,7 +195,7 @@ const Register = () => {
           <div className="grid lg:grid-cols-[1.04fr_0.96fr]">
             <section className="relative hidden min-h-[42rem] overflow-hidden border-b border-[rgb(var(--theme-border-rgb)/0.88)] bg-[rgb(var(--theme-muted-rgb)/0.82)] lg:flex lg:border-b-0 lg:border-r">
               <img
-                src="/branding/registerpage.webp"
+                src={registerBannerUrl}
                 alt="Register visual"
                 className="absolute inset-0 h-full w-full object-cover"
                 onError={(event) => {

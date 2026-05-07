@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { AuthProvider } from '@/contexts/AuthContext'
+import { BrandingProvider } from '@/contexts/BrandingContext'
 import { SiteThemeProvider } from '@/contexts/SiteThemeContext'
 import { ToastProvider } from '@/hooks/useToast'
 
@@ -16,11 +17,13 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <SiteThemeProvider>
-          <ToastProvider>{children}</ToastProvider>
-        </SiteThemeProvider>
-      </AuthProvider>
+      <BrandingProvider>
+        <AuthProvider>
+          <SiteThemeProvider>
+            <ToastProvider>{children}</ToastProvider>
+          </SiteThemeProvider>
+        </AuthProvider>
+      </BrandingProvider>
     </QueryClientProvider>
   )
 }

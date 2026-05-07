@@ -9,6 +9,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -44,8 +45,15 @@ from .models import SiteSettings
 from .password_reset import send_password_reset_email
 from .throttles import AdminRateThrottle
 from .user_deletion import delete_user_account
+from .verification import get_site_settings as get_runtime_site_settings
 
 User = get_user_model()
+BRANDING_ASSET_FIELDS = (
+    "branding_logo",
+    "branding_favicon",
+    "branding_login_banner",
+    "branding_register_banner",
+)
 
 
 class IsSuperuserPermission(BasePermission):
@@ -74,8 +82,7 @@ class AdminGateView(AdminAPIView):
 
 
 def get_site_settings():
-    settings_obj, _ = SiteSettings.objects.get_or_create(pk=1)
-    return settings_obj
+    return get_runtime_site_settings()
 
 
 def parse_datetime_filter(value, *, end_of_day=False):
@@ -578,6 +585,8 @@ class AdminBkashRefundView(AdminAPIView):
 
 
 class AdminSettingsView(AdminAPIView):
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
     def get(self, request):
         return Response(SiteSettingsAdminSerializer(get_site_settings()).data)
 
@@ -589,13 +598,43 @@ class AdminSettingsView(AdminAPIView):
             partial=True,
         )
         serializer.is_valid(raise_exception=True)
+        previous_files = {}
+        updated_fields = []
+
+        for field_name in BRANDING_ASSET_FIELDS:
+            existing_file = getattr(settings_obj, field_name, None)
+            if existing_file and getattr(existing_file, "name", ""):
+                previous_files[field_name] = (existing_file.storage, existing_file.name)
+
         for field, value in serializer.validated_data.items():
+            if field.startswith("clear_") or field in BRANDING_ASSET_FIELDS:
+                continue
             setattr(settings_obj, field, value)
+            updated_fields.append(field)
+
+        for field_name in BRANDING_ASSET_FIELDS:
+            should_clear = bool(serializer.validated_data.get(f"clear_{field_name}", False))
+            if should_clear:
+                setattr(settings_obj, field_name, None)
+                updated_fields.append(field_name)
+                continue
+
+            if field_name in serializer.validated_data:
+                setattr(settings_obj, field_name, serializer.validated_data[field_name])
+                updated_fields.append(field_name)
+
         settings_obj.save()
+
+        for field_name, (storage, old_name) in previous_files.items():
+            current_field = getattr(settings_obj, field_name, None)
+            current_name = getattr(current_field, "name", "") if current_field else ""
+            if old_name and old_name != current_name:
+                storage.delete(old_name)
+
         log_audit_event(
             "admin_settings_update",
             request=request,
-            updated_fields=sorted(serializer.validated_data.keys()),
+            updated_fields=sorted(set(updated_fields)),
         )
         return Response(SiteSettingsAdminSerializer(settings_obj).data)
 

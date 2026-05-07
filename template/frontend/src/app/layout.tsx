@@ -6,12 +6,16 @@ import ClientShell from './ClientShell'
 export const metadata: Metadata = {
   title: 'reactdjango',
   description: 'A Django + React boilerplate',
+  icons: {
+    icon: '/branding/logo.ico',
+    shortcut: '/branding/logo.ico',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="flex min-h-full flex-col">
+      <body suppressHydrationWarning className="flex min-h-full flex-col">
         <Providers>
           <ClientShell>{children}</ClientShell>
         </Providers>

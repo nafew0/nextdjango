@@ -141,8 +141,11 @@ export async function getAdminSettings() {
   return response.data
 }
 
-export async function updateAdminSettings(payload: Record<string, unknown>) {
-  const response = await api.patch('/admin/settings/', payload)
+export async function updateAdminSettings(payload: Record<string, unknown> | FormData) {
+  const isFormData = payload instanceof FormData
+  const response = await api.patch('/admin/settings/', payload, {
+    headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : undefined,
+  })
   return response.data
 }
 

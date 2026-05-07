@@ -10,6 +10,7 @@ from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 from subscriptions.serializers import PlanSummarySerializer
 from subscriptions.services import LicenseService
 
+from .branding import resolve_branding_asset_url
 from .signup_protection import (
     GENERIC_SIGNUP_FAILURE_MESSAGE,
     is_disposable_email_domain,
@@ -106,6 +107,25 @@ class UserSerializer(serializers.ModelSerializer):
     def get_current_plan(self, obj):
         plan = LicenseService.get_user_plan(obj)
         return PlanSummarySerializer(plan).data
+
+
+class PublicBrandingSerializer(serializers.Serializer):
+    branding_logo_url = serializers.SerializerMethodField()
+    branding_favicon_url = serializers.SerializerMethodField()
+    branding_login_banner_url = serializers.SerializerMethodField()
+    branding_register_banner_url = serializers.SerializerMethodField()
+
+    def get_branding_logo_url(self, obj):
+        return resolve_branding_asset_url(obj, "branding_logo")
+
+    def get_branding_favicon_url(self, obj):
+        return resolve_branding_asset_url(obj, "branding_favicon")
+
+    def get_branding_login_banner_url(self, obj):
+        return resolve_branding_asset_url(obj, "branding_login_banner")
+
+    def get_branding_register_banner_url(self, obj):
+        return resolve_branding_asset_url(obj, "branding_register_banner")
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):

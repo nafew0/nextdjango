@@ -49,6 +49,7 @@ from .token_cookies import (
 )
 from .user_deletion import delete_user_account
 from .serializers import (
+    PublicBrandingSerializer,
     UserSerializer,
     UserRegistrationSerializer,
     UserUpdateSerializer,
@@ -229,6 +230,18 @@ class RegisterCaptchaView(generics.GenericAPIView):
             )
         response = Response(
             payload,
+            status=status.HTTP_200_OK,
+        )
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class BrandingSettingsView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        response = Response(
+            PublicBrandingSerializer(get_site_settings()).data,
             status=status.HTTP_200_OK,
         )
         response["Cache-Control"] = "no-store"

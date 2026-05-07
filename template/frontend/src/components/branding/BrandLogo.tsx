@@ -1,7 +1,6 @@
 'use client'
 import { cn } from '@/lib/utils'
-
-const BRAND_LOGO_PATH = '/branding/logo.svg'
+import { useBranding } from '@/contexts/BrandingContext'
 
 interface BrandLogoProps {
   className?: string
@@ -10,10 +9,12 @@ interface BrandLogoProps {
 }
 
 export default function BrandLogo({ className, imageClassName, compact = false }: BrandLogoProps) {
+  const { logoUrl } = useBranding()
+
   return (
     <div className={cn('flex items-center', className)}>
       <img
-        src={BRAND_LOGO_PATH}
+        src={logoUrl}
         alt="reactdjango logo"
         loading="eager"
         decoding="async"

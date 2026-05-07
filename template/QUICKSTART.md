@@ -18,12 +18,25 @@ brew services start postgresql@14
 brew services start redis
 ```
 
+On Linux or Ubuntu, install the same toolchain with your package manager before running setup. On Windows, run the Windows installer from Git Bash with Python, Node.js, PostgreSQL client tools, and Redis available in `PATH`.
+
 ## Option 1: Automated Setup (Recommended)
 
 ```bash
 cd template
 chmod +x setup.sh
 ./setup.sh
+```
+
+Platform-specific entrypoints:
+
+```bash
+# Linux / Ubuntu
+chmod +x setup_linux.sh
+./setup_linux.sh
+
+# Windows (Git Bash)
+./setup_windows.sh
 ```
 
 The script will prompt you for:

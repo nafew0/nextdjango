@@ -1,6 +1,7 @@
 import os
 import re
 import tempfile
+from io import BytesIO
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -8,12 +9,14 @@ from django.contrib import admin
 from django.core import mail
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import OperationalError
 from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
+from PIL import Image
 
 from subscriptions.models import BkashTransaction, Plan, SubscriptionEvent, UserSubscription
 
@@ -77,6 +80,18 @@ class StubOAuthClient:
     def save_authorize_data(self, request, **kwargs):
         state = kwargs.pop("state")
         self.framework.set_state_data(request.session, state, kwargs)
+
+
+def make_uploaded_image(name, *, size=(640, 360), image_format="PNG", color=(91, 45, 98)):
+    buffer = BytesIO()
+    image = Image.new("RGB", size, color)
+    image.save(buffer, format=image_format)
+    buffer.seek(0)
+    return SimpleUploadedFile(
+        name,
+        buffer.getvalue(),
+        content_type=f"image/{image_format.lower()}",
+    )
 
 
 class AccountsBaseTestCase(TestCase):
@@ -399,6 +414,17 @@ class SignupProtectionTests(AccountsBaseTestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("email", response.data)
 
+    @patch(
+        "accounts.verification.SiteSettings.objects.get_or_create",
+        side_effect=OperationalError("missing column"),
+    )
+    def test_signup_challenge_survives_site_settings_schema_drift(self, mocked_get_or_create):
+        response = self.client.get("/api/auth/register/captcha/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("registration_token", response.data)
+        mocked_get_or_create.assert_called()
+
 
 @override_settings(
     DB_ENGINE="django.db.backends.sqlite3",
@@ -612,6 +638,20 @@ class SocialProviderEndpointTests(AccountsBaseTestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", response.data)
 
+    @patch(
+        "accounts.verification.SiteSettings.objects.get_or_create",
+        side_effect=OperationalError("missing column"),
+    )
+    def test_social_provider_list_survives_site_settings_schema_drift(
+        self,
+        mocked_get_or_create,
+    ):
+        response = self.client.get("/api/auth/social/providers/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("providers", response.data)
+        mocked_get_or_create.assert_called()
+
     @patch("accounts.social_auth.get_oauth_client", return_value=StubOAuthClient())
     def test_social_start_returns_authorization_url_for_enabled_provider(self, mocked_client):
         self.site_settings.social_login_google_enabled = True
@@ -638,6 +678,7 @@ class SocialProviderEndpointTests(AccountsBaseTestCase):
     DB_ENGINE="django.db.backends.sqlite3",
     GOOGLE_OAUTH_CLIENT_ID="google-id",
     GOOGLE_OAUTH_CLIENT_SECRET="google-secret",
+    MEDIA_ROOT=tempfile.mkdtemp(prefix="reactdjango-branding-tests-"),
 )
 class AdminSettingsSocialTests(AccountsBaseTestCase):
     def setUp(self):
@@ -669,6 +710,9 @@ class AdminSettingsSocialTests(AccountsBaseTestCase):
             "environment",
         )
         self.assertIn("rate_limit_storage_meta", response.data)
+        self.assertEqual(response.data["branding_logo_url"], "/branding/logo.svg")
+        self.assertEqual(response.data["branding_favicon_url"], "/branding/logo.ico")
+        self.assertFalse(response.data["branding_logo_customized"])
 
     def test_admin_settings_patch_updates_social_toggles(self):
         response = self.client.patch(
@@ -696,6 +740,74 @@ class AdminSettingsSocialTests(AccountsBaseTestCase):
         self.assertEqual(self.site_settings.signup_sustained_limit, 30)
         self.assertTrue(self.site_settings.social_login_google_enabled)
         self.assertTrue(self.site_settings.social_login_github_enabled)
+
+    def test_public_branding_returns_custom_uploaded_assets(self):
+        response = self.client.patch(
+            "/api/admin/settings/",
+            {
+                "branding_logo": make_uploaded_image(
+                    "logo.png",
+                    size=(1200, 320),
+                ),
+                "branding_favicon": make_uploaded_image(
+                    "favicon.png",
+                    size=(256, 256),
+                ),
+                "branding_login_banner": make_uploaded_image(
+                    "login-banner.png",
+                    size=(1800, 1200),
+                ),
+                "branding_register_banner": make_uploaded_image(
+                    "register-banner.png",
+                    size=(1800, 1200),
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.site_settings.refresh_from_db()
+        self.assertTrue(bool(self.site_settings.branding_logo))
+        self.assertTrue(bool(self.site_settings.branding_favicon))
+        self.assertTrue(response.data["branding_logo_customized"])
+        self.assertTrue(response.data["branding_favicon_customized"])
+
+        public_client = APIClient()
+        public_response = public_client.get("/api/auth/branding/")
+
+        self.assertEqual(public_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            public_response.data["branding_logo_url"].startswith("/media/branding/")
+        )
+        self.assertTrue(
+            public_response.data["branding_favicon_url"].startswith("/media/branding/")
+        )
+        self.assertTrue(
+            public_response.data["branding_login_banner_url"].startswith(
+                "/media/branding/"
+            )
+        )
+        self.assertTrue(
+            public_response.data["branding_register_banner_url"].startswith(
+                "/media/branding/"
+            )
+        )
+
+    def test_admin_settings_rejects_oversized_favicon_dimensions(self):
+        response = self.client.patch(
+            "/api/admin/settings/",
+            {
+                "branding_favicon": make_uploaded_image(
+                    "favicon.png",
+                    size=(768, 768),
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("branding_favicon", response.data)
+        self.assertIn("512x512", str(response.data["branding_favicon"][0]))
 
 
 @override_settings(DB_ENGINE="django.db.backends.sqlite3")

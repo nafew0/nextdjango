@@ -14,6 +14,11 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_PARENT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SETUP_PLATFORM="${SETUP_PLATFORM:-auto}"
+PLATFORM=""
+PLATFORM_LABEL=""
+PYTHON_BOOTSTRAP=()
+VENV_ACTIVATE_PATH=""
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   Django + Next.js SaaS Starter Setup                 ║${NC}"
@@ -38,19 +43,79 @@ print_warning() {
     echo -e "${YELLOW}⚠ $1${NC}"
 }
 
-escape_sed_replacement() {
-    printf '%s' "$1" | sed 's/[\/&]/\\&/g'
+detect_platform() {
+    if [[ -n "$PLATFORM" ]]; then
+        return
+    fi
+
+    case "$SETUP_PLATFORM" in
+        auto)
+            case "$OSTYPE" in
+                darwin*) PLATFORM="macos" ;;
+                linux*) PLATFORM="linux" ;;
+                msys*|cygwin*|win32*|mingw*) PLATFORM="windows" ;;
+                *)
+                    print_error "Unsupported platform: $OSTYPE"
+                    exit 1
+                    ;;
+            esac
+            ;;
+        macos|linux|windows)
+            PLATFORM="$SETUP_PLATFORM"
+            ;;
+        *)
+            print_error "Unsupported setup target: $SETUP_PLATFORM"
+            exit 1
+            ;;
+    esac
+
+    case "$PLATFORM" in
+        macos)
+            PLATFORM_LABEL="macOS"
+            PYTHON_BOOTSTRAP=(python3)
+            VENV_ACTIVATE_PATH="venv/bin/activate"
+            ;;
+        linux)
+            PLATFORM_LABEL="Linux"
+            PYTHON_BOOTSTRAP=(python3)
+            VENV_ACTIVATE_PATH="venv/bin/activate"
+            ;;
+        windows)
+            PLATFORM_LABEL="Windows (Git Bash)"
+            if command -v py >/dev/null 2>&1; then
+                PYTHON_BOOTSTRAP=(py -3)
+            elif command -v python >/dev/null 2>&1; then
+                PYTHON_BOOTSTRAP=(python)
+            else
+                print_error "Python 3 is required but neither 'py -3' nor 'python' was found in PATH."
+                exit 1
+            fi
+            VENV_ACTIVATE_PATH="venv/Scripts/activate"
+            ;;
+    esac
+}
+
+run_bootstrap_python() {
+    "${PYTHON_BOOTSTRAP[@]}" "$@"
+}
+
+activate_project_venv() {
+    source "$1/$VENV_ACTIVATE_PATH"
 }
 
 # Check if required commands are available
 check_requirements() {
+    detect_platform
     print_info "Checking system requirements..."
 
-    command -v python3 >/dev/null 2>&1 || { print_error "Python3 is required but not installed. Aborting."; exit 1; }
+    if ! run_bootstrap_python --version >/dev/null 2>&1; then
+        print_error "Python 3 is required but not available for $PLATFORM_LABEL. Aborting."
+        exit 1
+    fi
     command -v npm >/dev/null 2>&1 || { print_error "Node.js/npm is required but not installed. Aborting."; exit 1; }
     command -v psql >/dev/null 2>&1 || { print_error "PostgreSQL is required but not installed. Aborting."; exit 1; }
 
-    print_success "All required commands are available"
+    print_success "All required commands are available for $PLATFORM_LABEL"
 }
 
 # Get user inputs
@@ -104,8 +169,8 @@ get_user_inputs() {
     PROJECT_DIR=${PROJECT_DIR:-${TEMPLATE_PARENT_DIR}/${PROJECT_NAME}}
 
     # Django secret key - generate without Django dependency
-    DJANGO_SECRET_KEY=$(python3 -c 'import secrets; import string; chars = string.ascii_letters + string.digits + "!@#$%^&*(-_=+)"; print("".join(secrets.choice(chars) for _ in range(50)))')
-    JWT_SIGNING_KEY=$(python3 -c 'import secrets; import string; chars = string.ascii_letters + string.digits + "!@#$%^&*(-_=+)"; print("".join(secrets.choice(chars) for _ in range(50)))')
+    DJANGO_SECRET_KEY=$(run_bootstrap_python -c 'import secrets; import string; chars = string.ascii_letters + string.digits + "!@#$%^&*(-_=+)"; print("".join(secrets.choice(chars) for _ in range(50)))')
+    JWT_SIGNING_KEY=$(run_bootstrap_python -c 'import secrets; import string; chars = string.ascii_letters + string.digits + "!@#$%^&*(-_=+)"; print("".join(secrets.choice(chars) for _ in range(50)))')
 
     echo ""
     print_info "Summary of your inputs:"
@@ -191,21 +256,51 @@ copy_template_files() {
 replace_placeholders() {
     print_info "Replacing placeholders in files..."
 
-    local escaped_project_name
-    local escaped_db_name
-    escaped_project_name=$(escape_sed_replacement "$PROJECT_NAME")
-    escaped_db_name=$(escape_sed_replacement "$DB_NAME")
+    run_bootstrap_python - "$PROJECT_DIR" "$PROJECT_NAME" "$DB_NAME" <<'PY'
+from pathlib import Path
+import sys
 
-    # Find and replace in all files
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS
-        find "$PROJECT_DIR" -type f \( -name "*.py" -o -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.html" -o -name "*.md" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.sh" -o -name ".env*" \) -exec sed -i '' "s/{{PROJECT_NAME}}/$escaped_project_name/g" {} +
-        find "$PROJECT_DIR" -type f \( -name "*.py" -o -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.html" -o -name "*.md" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.sh" -o -name ".env*" \) -exec sed -i '' "s/{{DB_NAME}}/$escaped_db_name/g" {} +
-    else
-        # Linux
-        find "$PROJECT_DIR" -type f \( -name "*.py" -o -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.html" -o -name "*.md" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.sh" -o -name ".env*" \) -exec sed -i "s/{{PROJECT_NAME}}/$escaped_project_name/g" {} +
-        find "$PROJECT_DIR" -type f \( -name "*.py" -o -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.html" -o -name "*.md" -o -name "*.mjs" -o -name "*.cjs" -o -name "*.sh" -o -name ".env*" \) -exec sed -i "s/{{DB_NAME}}/$escaped_db_name/g" {} +
-    fi
+project_dir = Path(sys.argv[1])
+project_name = sys.argv[2]
+db_name = sys.argv[3]
+
+allowed_suffixes = {
+    ".py",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".json",
+    ".html",
+    ".md",
+    ".mjs",
+    ".cjs",
+    ".sh",
+    ".cmd",
+    ".env",
+}
+
+for path in project_dir.rglob("*"):
+    if not path.is_file():
+        continue
+
+    if path.name.startswith(".env"):
+        should_process = True
+    else:
+        should_process = path.suffix in allowed_suffixes
+
+    if not should_process:
+        continue
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        continue
+
+    updated = content.replace("{{PROJECT_NAME}}", project_name).replace("{{DB_NAME}}", db_name)
+    if updated != content:
+        path.write_text(updated, encoding="utf-8")
+PY
 
     print_success "Placeholders replaced"
 }
@@ -302,18 +397,18 @@ setup_backend() {
 
     # Create virtual environment
     print_info "Creating Python virtual environment..."
-    python3 -m venv venv
+    run_bootstrap_python -m venv venv
 
     # Activate virtual environment
-    source venv/bin/activate
+    activate_project_venv "$PROJECT_DIR/backend"
 
     # Upgrade pip
     print_info "Upgrading pip..."
-    pip install --upgrade pip
+    python -m pip install --upgrade pip
 
     # Install requirements
     print_info "Installing Python dependencies..."
-    pip install -r requirements.txt
+    python -m pip install -r requirements.txt
 
     print_success "Backend setup complete"
 }
@@ -348,7 +443,7 @@ run_migrations() {
     print_info "Running Django migrations..."
 
     cd "$PROJECT_DIR/backend"
-    source venv/bin/activate
+    activate_project_venv "$PROJECT_DIR/backend"
 
     python manage.py makemigrations
     python manage.py migrate
@@ -361,7 +456,7 @@ seed_plans() {
     print_info "Seeding default subscription plans (Free / Pro / Enterprise)..."
 
     cd "$PROJECT_DIR/backend"
-    source venv/bin/activate
+    activate_project_venv "$PROJECT_DIR/backend"
 
     python manage.py shell -c "
 from subscriptions.models import Plan
@@ -385,7 +480,7 @@ create_superuser() {
     print_warning "You will be prompted to create a superuser account"
 
     cd "$PROJECT_DIR/backend"
-    source venv/bin/activate
+    activate_project_venv "$PROJECT_DIR/backend"
 
     python manage.py createsuperuser
 
@@ -413,11 +508,16 @@ setup_frontend() {
 create_start_scripts() {
     print_info "Creating start scripts..."
 
+    local shell_activate_path="venv/bin/activate"
+    if [[ "$PLATFORM" == "windows" ]]; then
+        shell_activate_path="venv/Scripts/activate"
+    fi
+
     # Backend start script
-    cat > "$PROJECT_DIR/start_backend.sh" << 'EOF'
+    cat > "$PROJECT_DIR/start_backend.sh" << EOF
 #!/bin/bash
 cd backend
-source venv/bin/activate
+source $shell_activate_path
 python manage.py runserver 8000
 EOF
 
@@ -454,6 +554,29 @@ EOF
     chmod +x "$PROJECT_DIR/start_frontend.sh"
     chmod +x "$PROJECT_DIR/start.sh"
 
+    if [[ "$PLATFORM" == "windows" ]]; then
+        cat > "$PROJECT_DIR/start_backend.cmd" << 'EOF'
+@echo off
+cd /d "%~dp0backend"
+call venv\Scripts\activate.bat
+python manage.py runserver 8000
+EOF
+
+        cat > "$PROJECT_DIR/start_frontend.cmd" << 'EOF'
+@echo off
+cd /d "%~dp0frontend"
+call npm run dev
+EOF
+
+        cat > "$PROJECT_DIR/start.cmd" << 'EOF'
+@echo off
+start "Backend" cmd /k "%~dp0start_backend.cmd"
+start "Frontend" cmd /k "%~dp0start_frontend.cmd"
+echo Backend running on http://localhost:8000
+echo Frontend running on http://localhost:3000
+EOF
+    fi
+
     print_success "Start scripts created"
 }
 
@@ -467,12 +590,23 @@ print_final_instructions() {
     print_info "Your project is ready at: $PROJECT_DIR"
     echo ""
     print_info "To start your project:"
-    echo "  1. Start backend:  ./start_backend.sh"
-    echo "  2. Start frontend: ./start_frontend.sh"
-    echo "  3. Or both:        ./start.sh"
+    if [[ "$PLATFORM" == "windows" ]]; then
+        echo "  1. Start backend:  start_backend.cmd"
+        echo "  2. Start frontend: start_frontend.cmd"
+        echo "  3. Or both:        start.cmd"
+        echo "  4. Git Bash option: ./start.sh"
+    else
+        echo "  1. Start backend:  ./start_backend.sh"
+        echo "  2. Start frontend: ./start_frontend.sh"
+        echo "  3. Or both:        ./start.sh"
+    fi
     echo ""
     print_info "Useful commands:"
-    echo "  Backend:  cd $PROJECT_DIR/backend && source venv/bin/activate"
+    if [[ "$PLATFORM" == "windows" ]]; then
+        echo "  Backend (Git Bash):  cd $PROJECT_DIR/backend && source venv/Scripts/activate"
+    else
+        echo "  Backend:  cd $PROJECT_DIR/backend && source venv/bin/activate"
+    fi
     echo "  Frontend: cd $PROJECT_DIR/frontend && npm run dev"
     echo ""
     print_info "URLs:"
