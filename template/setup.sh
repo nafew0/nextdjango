@@ -19,6 +19,9 @@ PLATFORM=""
 PLATFORM_LABEL=""
 PYTHON_BOOTSTRAP=()
 VENV_ACTIVATE_PATH=""
+REQUIRED_PYTHON_SERIES="3.12"
+REQUIRED_NODE_SERIES="24.15"
+REQUIRED_NPM_VERSION="11.12.1"
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   Django + Next.js SaaS Starter Setup                 ║${NC}"
@@ -103,6 +106,39 @@ activate_project_venv() {
     source "$1/$VENV_ACTIVATE_PATH"
 }
 
+require_python_series() {
+    local detected_version
+    detected_version=$(run_bootstrap_python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")')
+    case "$detected_version" in
+        "$REQUIRED_PYTHON_SERIES".*) ;;
+        *)
+            print_error "Python $REQUIRED_PYTHON_SERIES.x is required. Found $detected_version."
+            exit 1
+            ;;
+    esac
+}
+
+require_node_series() {
+    local detected_version
+    detected_version=$(node --version 2>/dev/null | tr -d 'v')
+    case "$detected_version" in
+        "$REQUIRED_NODE_SERIES".*) ;;
+        *)
+            print_error "Node.js $REQUIRED_NODE_SERIES.x is required. Found $detected_version."
+            exit 1
+            ;;
+    esac
+}
+
+require_npm_version() {
+    local detected_version
+    detected_version=$(npm --version 2>/dev/null)
+    if [ "$detected_version" != "$REQUIRED_NPM_VERSION" ]; then
+        print_error "npm $REQUIRED_NPM_VERSION is required. Found $detected_version."
+        exit 1
+    fi
+}
+
 # Check if required commands are available
 check_requirements() {
     detect_platform
@@ -113,9 +149,15 @@ check_requirements() {
         exit 1
     fi
     command -v npm >/dev/null 2>&1 || { print_error "Node.js/npm is required but not installed. Aborting."; exit 1; }
+    command -v node >/dev/null 2>&1 || { print_error "Node.js is required but not installed. Aborting."; exit 1; }
     command -v psql >/dev/null 2>&1 || { print_error "PostgreSQL is required but not installed. Aborting."; exit 1; }
 
+    require_python_series
+    require_node_series
+    require_npm_version
+
     print_success "All required commands are available for $PLATFORM_LABEL"
+    print_success "Validated Python $REQUIRED_PYTHON_SERIES.x, Node.js $REQUIRED_NODE_SERIES.x, and npm $REQUIRED_NPM_VERSION"
 }
 
 # Get user inputs

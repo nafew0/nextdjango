@@ -128,12 +128,12 @@ project-name/
 
 Before you begin, ensure you have the following installed on your machine:
 
-1. **Python 3.8+**
+1. **Python 3.12.x**
    ```bash
    python3 --version
    ```
 
-2. **Node.js 18+ and npm**
+2. **Node.js 24.15.x and npm 11.12.1**
    ```bash
    node --version
    npm --version
@@ -189,6 +189,11 @@ The script will:
 7. Run database migrations
 8. Create a superuser (optional)
 9. Create start scripts
+
+The setup script validates the runtime versions up front and stops unless it finds:
+- `Python 3.12.x`
+- `Node.js 24.15.x`
+- `npm 11.12.1`
 
 After setup completes:
 
@@ -773,8 +778,9 @@ python manage.py runserver
 rm -rf node_modules package-lock.json
 npm install
 
-# Check Node version
+# Check Node and npm versions
 node --version
+npm --version
 
 # Try alternative port
 npm run dev -- --port 3001

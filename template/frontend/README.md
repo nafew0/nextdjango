@@ -1,4 +1,12 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This frontend template targets:
+- `Node.js 24.15.x`
+- `npm 11.12.1`
+
+The project declares:
+- `"packageManager": "npm@11.12.1"`
+- `"engines": { "node": "24.15.x", "npm": "11.12.1" }`
+
+Use `npm` for dependency installation and scripts.
 
 ## Getting Started
 

@@ -5,20 +5,27 @@ Get your Django + Next.js SaaS starter up and running in minutes.
 ## Prerequisites
 
 ```bash
-python3 --version   # 3.8+
-node --version      # 18+
+python3 --version   # 3.12.x
+node --version      # 24.15.x
+npm --version       # 11.12.1
 psql --version      # 12+
 redis-server --version  # 6+ (for caching, Celery)
 ```
 
 Install missing tools (macOS):
 ```bash
-brew install python3 node postgresql@14 redis
+brew install python@3.12 node postgresql@14 redis
 brew services start postgresql@14
 brew services start redis
 ```
 
 On Linux or Ubuntu, install the same toolchain with your package manager before running setup. On Windows, run the Windows installer from Git Bash with Python, Node.js, PostgreSQL client tools, and Redis available in `PATH`.
+
+This template targets:
+- `Django 5.2.x` (LTS line)
+- `Python 3.12.x`
+- `Node.js 24.15.x`
+- `npm 11.12.1`
 
 ## Option 1: Automated Setup (Recommended)
 

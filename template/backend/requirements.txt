@@ -1,6 +1,6 @@
 # Django
-Django==4.2.10
-djangorestframework==3.14.0
+Django>=5.2,<5.3
+djangorestframework>=3.16,<3.17
 
 # Database
 psycopg2-binary==2.9.9
@@ -9,11 +9,11 @@ psycopg2-binary==2.9.9
 djangorestframework-simplejwt==5.3.1
 
 # CORS
-django-cors-headers==4.3.1
+django-cors-headers>=4.9,<5.0
 
 # Channels for WebSockets (optional but included)
-channels==4.0.0
-channels-redis==4.2.0
+channels>=4.3,<4.4
+channels-redis>=4.3,<4.4
 
 # Redis cache
 redis==5.0.1
