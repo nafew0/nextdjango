@@ -269,7 +269,7 @@ copy_template_files() {
 
     # The user already approved overwrite in create_project_directory.
     # Remove prior generated app folders so stale files cannot survive.
-    rm -rf "$PROJECT_DIR/backend" "$PROJECT_DIR/frontend"
+    rm -rf "$PROJECT_DIR/backend" "$PROJECT_DIR/frontend" "$PROJECT_DIR/frontend-vite"
 
     # Copy backend
     cp -r "$SCRIPT_DIR/backend" "$PROJECT_DIR/"
@@ -278,7 +278,7 @@ copy_template_files() {
     cp -r "$SCRIPT_DIR/frontend" "$PROJECT_DIR/"
 
     # Copy project-level utilities that remain useful after installation.
-    for file in .editorconfig QUICKSTART.md setup_database.sh; do
+    for file in .editorconfig QUICKSTART.md STRUCTURE.md setup_database.sh; do
         if [ -e "$SCRIPT_DIR/$file" ]; then
             cp -R "$SCRIPT_DIR/$file" "$PROJECT_DIR/$file"
         fi
