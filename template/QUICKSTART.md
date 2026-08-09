@@ -6,8 +6,8 @@ Get your Django + Next.js SaaS starter up and running in minutes.
 
 ```bash
 python3 --version   # 3.12.x
-node --version      # 24.15.x
-npm --version       # 11.12.1
+node --version      # 24.x
+npm --version       # 11.x
 psql --version      # 12+
 redis-server --version  # 6+ (for caching, Celery)
 ```
@@ -24,8 +24,8 @@ On Linux or Ubuntu, install the same toolchain with your package manager before 
 This template targets:
 - `Django 5.2.x` (LTS line)
 - `Python 3.12.x`
-- `Node.js 24.15.x`
-- `npm 11.12.1`
+- `Node.js 24.x`
+- `npm 11.x`
 
 ## Option 1: Automated Setup (Recommended)
 

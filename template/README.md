@@ -133,7 +133,7 @@ Before you begin, ensure you have the following installed on your machine:
    python3 --version
    ```
 
-2. **Node.js 24.15.x and npm 11.12.1**
+2. **Node.js 24.x and npm 11.x**
    ```bash
    node --version
    npm --version
@@ -192,8 +192,8 @@ The script will:
 
 The setup script validates the runtime versions up front and stops unless it finds:
 - `Python 3.12.x`
-- `Node.js 24.15.x`
-- `npm 11.12.1`
+- `Node.js 24.x`
+- `npm 11.x`
 
 After setup completes:
 

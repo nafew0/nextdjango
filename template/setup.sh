@@ -20,8 +20,8 @@ PLATFORM_LABEL=""
 PYTHON_BOOTSTRAP=()
 VENV_ACTIVATE_PATH=""
 REQUIRED_PYTHON_SERIES="3.12"
-REQUIRED_NODE_SERIES="24.15"
-REQUIRED_NPM_VERSION="11.12.1"
+REQUIRED_NODE_MAJOR="24"
+REQUIRED_NPM_MAJOR="11"
 
 echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   Django + Next.js SaaS Starter Setup                 ║${NC}"
@@ -122,9 +122,9 @@ require_node_series() {
     local detected_version
     detected_version=$(node --version 2>/dev/null | tr -d 'v')
     case "$detected_version" in
-        "$REQUIRED_NODE_SERIES".*) ;;
+        "$REQUIRED_NODE_MAJOR".*) ;;
         *)
-            print_error "Node.js $REQUIRED_NODE_SERIES.x is required. Found $detected_version."
+            print_error "Node.js $REQUIRED_NODE_MAJOR.x is required. Found $detected_version."
             exit 1
             ;;
     esac
@@ -133,10 +133,13 @@ require_node_series() {
 require_npm_version() {
     local detected_version
     detected_version=$(npm --version 2>/dev/null)
-    if [ "$detected_version" != "$REQUIRED_NPM_VERSION" ]; then
-        print_error "npm $REQUIRED_NPM_VERSION is required. Found $detected_version."
-        exit 1
-    fi
+    case "$detected_version" in
+        "$REQUIRED_NPM_MAJOR".*) ;;
+        *)
+            print_error "npm $REQUIRED_NPM_MAJOR.x is required. Found $detected_version."
+            exit 1
+            ;;
+    esac
 }
 
 # Check if required commands are available
@@ -157,7 +160,7 @@ check_requirements() {
     require_npm_version
 
     print_success "All required commands are available for $PLATFORM_LABEL"
-    print_success "Validated Python $REQUIRED_PYTHON_SERIES.x, Node.js $REQUIRED_NODE_SERIES.x, and npm $REQUIRED_NPM_VERSION"
+    print_success "Validated Python $REQUIRED_PYTHON_SERIES.x, Node.js $REQUIRED_NODE_MAJOR.x, and npm $REQUIRED_NPM_MAJOR.x"
 }
 
 # Get user inputs

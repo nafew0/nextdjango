@@ -1,10 +1,10 @@
 This frontend template targets:
-- `Node.js 24.15.x`
-- `npm 11.12.1`
+- `Node.js 24.x`
+- `npm 11.x`
 
 The project declares:
 - `"packageManager": "npm@11.12.1"`
-- `"engines": { "node": "24.15.x", "npm": "11.12.1" }`
+- `"engines": { "node": "24.x", "npm": "11.x" }`
 
 Use `npm` for dependency installation and scripts.
 
