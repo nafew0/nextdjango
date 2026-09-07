@@ -2,7 +2,7 @@
 
 Get your Django + Next.js SaaS starter up and running in minutes.
 
-## Prerequisites
+## Toolchain
 
 ```bash
 python3 --version   # 3.12.x
@@ -12,14 +12,15 @@ psql --version      # 12+
 redis-server --version  # 6+ (for caching, Celery)
 ```
 
-Install missing tools (macOS):
-```bash
-brew install python@3.12 node postgresql@14 redis
-brew services start postgresql@14
-brew services start redis
-```
+The automated setup checks these commands and offers to install or switch incompatible versions. It uses `uv` for Python 3.12, Volta for Node.js 24 and npm 11, and the native package manager for PostgreSQL. You need Bash, internet access, and permission to install system packages; Windows setup runs from Git Bash and requires WinGet. Redis remains optional for local development.
 
-On Linux or Ubuntu, install the same toolchain with your package manager before running setup. On Windows, run the Windows installer from Git Bash with Python, Node.js, PostgreSQL client tools, and Redis available in `PATH`.
+The selected versions are used immediately by setup. Open a new terminal afterward if your original terminal still reports an older global Python, Node.js, or npm version.
+
+To approve tool installation without the confirmation prompt:
+
+```bash
+AUTO_INSTALL_REQUIREMENTS=yes ./setup.sh
+```
 
 This template targets:
 - `Django 5.2.x` (LTS line)
@@ -53,6 +54,7 @@ The script will prompt you for:
 - bKash credentials (optional — skip for now, add later)
 
 It will then:
+- Check, install, and select the required Python, Node.js, npm, and PostgreSQL toolchain
 - Create project directory and copy template files
 - Set up PostgreSQL database
 - Create Python virtual environment and install dependencies
@@ -70,7 +72,7 @@ cd template && chmod +x setup_database.sh && ./setup_database.sh
 
 # 2. Backend
 cd backend
-python3 -m venv venv && source venv/bin/activate
+python3.12 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 # Edit .env — at minimum set DJANGO_SECRET_KEY, JWT_SIGNING_KEY, DB_NAME, DB_USER, DB_PASSWORD
@@ -158,7 +160,7 @@ python manage.py migrate --run-syncdb
 **Rebuild dependencies:**
 ```bash
 # Backend
-rm -rf backend/venv && cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+rm -rf backend/venv && cd backend && python3.12 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
 
 # Frontend
 rm -rf frontend/node_modules frontend/package-lock.json && cd frontend && npm install

@@ -126,7 +126,7 @@ project-name/
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed on your machine:
+The automated setup checks and, with your approval, installs or selects the required toolchain:
 
 1. **Python 3.12.x**
    ```bash
@@ -139,11 +139,7 @@ Before you begin, ensure you have the following installed on your machine:
    npm --version
    ```
 
-3. **PostgreSQL 12+**
-   ```bash
-   brew install postgresql@14
-   brew services start postgresql@14
-   ```
+3. **PostgreSQL 12+ and `psql`**
 
 4. **Redis** (optional, for WebSocket support)
    ```bash
@@ -155,6 +151,12 @@ Before you begin, ensure you have the following installed on your machine:
    ```bash
    git --version
    ```
+
+Python is installed per-user through `uv`, while Node.js and npm are installed and selected through Volta. PostgreSQL is installed through Homebrew on macOS, `apt-get`/`dnf`/`yum`/`pacman` on Linux, or WinGet on Windows. PostgreSQL installation may request administrator access and, on Windows, may open an interactive installer for the database superuser password.
+
+The scripts still need Bash and an internet connection. Windows setup must run from Git Bash and requires WinGet; WSL uses the Linux setup. Set `AUTO_INSTALL_REQUIREMENTS=yes` to approve missing-tool installation non-interactively, or `AUTO_INSTALL_REQUIREMENTS=no` to keep check-only behavior.
+
+Downloaded versions are activated immediately inside setup. Volta and `uv` also update the user tool paths for future terminals; open a new terminal before running these tools manually if the terminal that launched setup still reports an older version.
 
 ---
 
@@ -190,10 +192,11 @@ The script will:
 8. Create a superuser (optional)
 9. Create start scripts
 
-The setup script validates the runtime versions up front and stops unless it finds:
+The setup script validates these versions up front. Missing or incompatible Python, Node.js, and npm versions are downloaded and activated for setup; PostgreSQL is installed when `psql` is missing or older than version 12:
 - `Python 3.12.x`
 - `Node.js 24.x`
 - `npm 11.x`
+- `PostgreSQL 12+`
 
 After setup completes:
 
@@ -235,7 +238,7 @@ CREATE DATABASE your_db_name;
 cd backend
 
 # Create virtual environment
-python3 -m venv venv
+python3.12 -m venv venv
 source venv/bin/activate
 
 # Install dependencies
@@ -422,11 +425,16 @@ Or change ports in:
 pg_isready
 
 # Start PostgreSQL
-brew services start postgresql@14
+brew services start postgresql@17
 
 # Or restart
-brew services restart postgresql@14
+brew services restart postgresql@17
+
+# Linux / WSL
+sudo systemctl start postgresql
 ```
+
+On Windows, start the PostgreSQL service from the Services app if the installer did not start it automatically.
 
 ### 3. Virtual Environment Issues
 
@@ -436,7 +444,7 @@ brew services restart postgresql@14
 ```bash
 # Delete and recreate venv
 rm -rf venv
-python3 -m venv venv
+python3.12 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
